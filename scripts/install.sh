@@ -269,7 +269,12 @@ start_daemon_by_hand() {
     mkdir -p "$STATE_DIR/log"
     # Fully detached: no inherited stdio, or a pipeline running this script
     # (`install.sh | tee`) would wait on the daemon forever.
-    (cd "$HOME" && RUST_LOG="${RUST_LOG:-info}" nohup "$BIN_DIR/tatamid" </dev/null >> "$STATE_DIR/log/tatamid.log" 2>&1 &)
+    # The subshell closes its own stdio before exec'ing the daemon, so a
+    # pipeline running this script never waits on tatamid.
+    (
+        exec </dev/null >>"$STATE_DIR/log/tatamid.log" 2>&1
+        cd "$HOME" && RUST_LOG="${RUST_LOG:-info}" exec nohup "$BIN_DIR/tatamid"
+    ) &
     disown 2>/dev/null || true
     ok "started tatamid (log: $STATE_DIR/log/tatamid.log)"
 }

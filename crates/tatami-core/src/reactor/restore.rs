@@ -473,13 +473,26 @@ impl<P: Platform> Reactor<P> {
     /// Put a window into a spec's slot (tiled placeholder or floating frame).
     /// Does not lay out.
     fn fill_spec(&mut self, id: WindowId, sid: u32) {
-        let Some(spec) = self.restore.as_mut().and_then(|s| s.specs.remove(&sid)) else {
+        let Some(mut spec) = self.restore.as_mut().and_then(|s| s.specs.remove(&sid)) else {
             return;
         };
         self.detach(id);
         let ws = spec.ws;
         if !self.workspaces.contains_key(ws) {
             return;
+        }
+        // A window that floats by rule (or cannot be resized) stays floating
+        // even if it was saved in a tiled slot: the slot is dropped and the
+        // window keeps its frame in the saved workspace.
+        if self.wins[id].w.kind == WindowKind::Floating {
+            if let Some(leaf) = spec.leaf.take()
+                && self.tree.pending_of(leaf) == Some(sid)
+            {
+                self.tree.remove_leaf(leaf);
+                let root = self.workspaces[ws].root;
+                self.tree.normalize(root);
+            }
+            spec.float = spec.float.or(Some(self.wins[id].w.frame));
         }
         self.wins[id].ws = ws;
         match spec.leaf {

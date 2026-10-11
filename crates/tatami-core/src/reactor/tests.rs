@@ -1541,3 +1541,32 @@ fn dragging_a_tile_over_a_sibling_swaps_them() {
     assert_eq!(t.frame(h[1]), a_before, "b took a's slot");
     assert_eq!(t.frame(h[0]).x, W / 2.0, "a took b's slot");
 }
+
+#[test]
+fn restore_keeps_a_rule_floated_window_floating_even_from_a_tiled_slot() {
+    // Saved while Settings was still tiled next to the terminal.
+    let (f, h) = fake_with(
+        vec![mon("m1", 0.0)],
+        &[
+            win("com.term", "shell", 0.0),
+            win("com.apple.systempreferences", "General", 500.0),
+        ],
+    );
+    let saved = saved_two(
+        saved_win("com.term", "shell"),
+        saved_win("com.apple.systempreferences", "General"),
+    );
+    let mut t = start(f, cfg(), Some(saved));
+    let settings = t.r.by_handle[&h[1]];
+    assert_eq!(
+        t.r.wins[settings].w.kind,
+        WindowKind::Floating,
+        "the built-in rule wins over the saved slot"
+    );
+    assert_eq!(
+        t.frame(h[0]),
+        r(0.0, 0.0, W, H),
+        "the terminal has the monitor to itself"
+    );
+    assert!(t.r.restore.is_none(), "no placeholder left waiting");
+}

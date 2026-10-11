@@ -58,10 +58,13 @@ pub enum Outcome {
 /// LaunchServices) are found by scanning the window server this often.
 const APP_SCAN_EVERY: Duration = Duration::from_secs(3);
 const FLASH_FOR: Duration = Duration::from_millis(2500);
+/// Read-back deadlines after each attempt. Short, because a window that is
+/// going to refuse a size does so at once and every retry is a visible
+/// twitch; a slow app (Electron) still gets three chances.
 const VERIFY_AFTER: [Duration; 3] = [
-    Duration::from_millis(60),
-    Duration::from_millis(150),
-    Duration::from_millis(400),
+    Duration::from_millis(40),
+    Duration::from_millis(90),
+    Duration::from_millis(250),
 ];
 /// A frame request is skipped when the window is already this close.
 const SKIP_EPS: f64 = 1.0;
@@ -1785,11 +1788,19 @@ impl<P: Platform> Reactor<P> {
                 self.txs.swap_remove(i);
                 continue;
             };
+            // An app at its minimum size answers two writes with the same
+            // size and the right position; a third try would only add a
+            // visible stutter, so it is stubborn now.
+            let clamped = tx.attempt >= 2
+                && (actual.x - tx.target.x).abs() <= MATCH_EPS
+                && (actual.y - tx.target.y).abs() <= MATCH_EPS
+                && (actual.w - m.w.frame.w).abs() <= MATCH_EPS
+                && (actual.h - m.w.frame.h).abs() <= MATCH_EPS;
             if actual.approx_eq(&tx.target, MATCH_EPS) {
                 m.w.frame = actual;
                 m.w.expected = None;
                 self.txs.swap_remove(i);
-            } else if usize::from(tx.attempt) < VERIFY_AFTER.len() {
+            } else if usize::from(tx.attempt) < VERIFY_AFTER.len() && !clamped {
                 let _ = self
                     .p
                     .set_window_frame(m.w.handle, tx.target, SetOrder::PosSizePos);

@@ -172,6 +172,7 @@ impl<P: Platform> Reactor<P> {
                 self.relayout_of(id);
                 ok()
             }
+            Action::Flip => self.cmd_flip(),
             Action::Split(arg) => {
                 let (id, leaf) = self.focused_tiled()?;
                 if !self.tree.split(leaf, *arg) {
@@ -600,6 +601,36 @@ impl<P: Platform> Reactor<P> {
                 }
             }
         }
+    }
+
+    /// `flip`: the one-key split. In a row of windows, the focused one and
+    /// its neighbour (right, else left; down, else up in a column) become
+    /// a pair stacked the other way; the rest of the row is untouched. On
+    /// a pair, flip its orientation; a pair turned back along its parent's
+    /// axis merges into the row again, so two presses are a round trip.
+    fn cmd_flip(&mut self) -> CmdResult {
+        let (id, leaf) = self.focused_tiled()?;
+        let parent = self.tree.container_of(leaf);
+        let n = self.tree.children(parent).len();
+        let layout = self.tree.layout_of(parent);
+        let changed = if n == 2 {
+            self.tree
+                .set_layout(parent, layout.with_axis(layout.axis().other()));
+            let root = self.tree.root_of(parent);
+            self.tree.normalize(root);
+            true
+        } else {
+            let dirs = match layout.axis() {
+                Axis::H => [Dir::Right, Dir::Left],
+                Axis::V => [Dir::Down, Dir::Up],
+            };
+            dirs.into_iter().any(|d| self.tree.join_with(leaf, d))
+        };
+        if !changed {
+            return Err("nothing to flip with".into());
+        }
+        self.relayout_of(id);
+        ok()
     }
 
     fn cmd_fullscreen(&mut self, t: Toggle) -> CmdResult {

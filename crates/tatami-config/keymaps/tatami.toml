@@ -49,7 +49,8 @@
 "alt+tab" = "workspace-back-and-forth"
 "alt+f" = "fullscreen"
 "alt+t" = "layout floating tiling"
-"alt+e" = "layout tiles horizontal vertical"
+"alt+e" = "flip"                                 # this window + its neighbour: side by side ↔ stacked
+"alt+shift+e" = "layout tiles horizontal vertical" # the whole container
 "alt+a" = "layout accordion horizontal vertical"
 # Explicit splits, i3-style: wrap the focused window in a container so the
 # next window (or a move into it) lands below (`v`) or beside (`b`) it.

@@ -464,6 +464,7 @@ pub fn command_words(a: &Action) -> String {
         Action::FocusMonitor { target, .. } => format!("focus-monitor {}", mon(target)),
         Action::FlattenWorkspaceTree => "flatten-workspace-tree".into(),
         Action::JoinWith(d) => format!("join-with {d}"),
+        Action::Flip => "flip".to_string(),
         Action::Split(s) => format!(
             "split {}",
             match s {

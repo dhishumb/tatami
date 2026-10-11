@@ -50,7 +50,8 @@ Quit Rectangle, yabai or AeroSpace first; two managers fight.
 | `alt+tab` | workspace back and forth |
 | `alt+f` | fullscreen toggle |
 | `alt+t` | floating / tiling toggle |
-| `alt+e` | tiles: horizontal ↔ vertical |
+| `alt+e` | flip: this window and its neighbour, side by side ↔ stacked (press again to undo) |
+| `alt+shift+e` | the whole container: horizontal ↔ vertical |
 | `alt+a` | accordion: horizontal ↔ vertical |
 | `alt+/` | pin the which-key sheet |
 | `alt+w` | **workspaces**: `h`/`l` prev/next, `n`/`p` next/prev monitor, `m` move workspace to next monitor, `1-9` |

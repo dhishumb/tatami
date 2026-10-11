@@ -1382,3 +1382,28 @@ fn native_fullscreen_leaves_the_tree_until_it_exits() {
     assert_eq!(t.order().len(), 2);
     assert_eq!(t.frame(h[1]).w, 500.0);
 }
+
+#[test]
+fn flip_pairs_the_focused_window_with_its_neighbour_and_back() {
+    let (mut t, h) = setup(
+        vec![mon("m1", 0.0)],
+        &[
+            win("com.a", "a", 0.0),
+            win("com.b", "b", 300.0),
+            win("com.c", "c", 600.0),
+        ],
+    );
+    t.focus(h[1]);
+    t.ok("flip");
+    let (a, b, c) = (t.frame(h[0]), t.frame(h[1]), t.frame(h[2]));
+    assert_eq!(a.x, 0.0, "the untouched neighbour keeps its column");
+    assert_eq!(b.x, c.x, "b and c share a column");
+    assert!(b.y < c.y && b.h < H, "b is stacked above c");
+    t.ok("flip");
+    let (b, c) = (t.frame(h[1]), t.frame(h[2]));
+    assert_eq!(b.y, c.y, "back side by side");
+    assert!(
+        b.x < c.x && (b.h - H).abs() < 1.0,
+        "the pair merged into the row again"
+    );
+}

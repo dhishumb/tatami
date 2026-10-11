@@ -268,6 +268,9 @@ pub enum Action {
     },
     FlattenWorkspaceTree,
     JoinWith(Dir),
+    /// Pair the focused window with its neighbour along the parent's axis
+    /// and stack the two the other way; on a pair, flip it back.
+    Flip,
     Split(SplitArg),
     BalanceSizes,
     Close,
@@ -519,6 +522,7 @@ impl Action {
             },
             "flatten-workspace-tree" => Action::FlattenWorkspaceTree,
             "join-with" => Action::JoinWith(dir_of(cmd, one(cmd, &pos, "direction")?)?),
+            "flip" => Action::Flip,
             "split" => Action::Split(match one(cmd, &pos, "orientation")? {
                 "horizontal" => SplitArg::Horizontal,
                 "vertical" => SplitArg::Vertical,
@@ -812,6 +816,7 @@ mod tests {
             }
         );
         assert_eq!(p("split opposite"), Action::Split(SplitArg::Opposite));
+        assert_eq!(p("flip"), Action::Flip);
         assert_eq!(p("mode resize"), Action::Mode("resize".into()));
         assert_eq!(p("mode normal"), Action::Normal);
         assert_eq!(p("normal"), Action::Normal);

@@ -678,7 +678,8 @@ preset = "tatami"
             (row("w").desc.as_str(), row("w").prefix),
             ("+workspaces", true)
         );
-        assert_eq!(row("e").desc, "layout tiles horizontal vertical");
+        assert_eq!(row("e").desc, "flip");
+        assert_eq!(row("E").desc, "layout tiles horizontal vertical");
         let resize = km.which_key(&Level::Mode("resize".into()));
         assert!(
             resize

@@ -1488,3 +1488,56 @@ fn flip_twice_is_a_round_trip_for_the_weights() {
     );
     assert!(ws[0] >= 249.0, "{ws:?}");
 }
+
+#[test]
+fn a_fixed_size_window_floats_instead_of_being_tiled() {
+    let (f, h) = fake_with(
+        vec![mon("m1", 0.0)],
+        &[
+            win("com.a", "a", 0.0),
+            win("com.apple.systempreferences", "Settings", 300.0),
+        ],
+    );
+    f.set_resizable(h[1], false);
+    let mut t = start(f, cfg(), None);
+    t.ok("list-windows");
+    assert_eq!(t.r.wins[t.r.by_handle[&h[1]]].w.kind, WindowKind::Floating);
+    assert_eq!(t.frame(h[0]).w, W, "the tiled window has the whole monitor");
+}
+
+#[test]
+fn dragging_a_tile_onto_another_monitor_moves_it_there() {
+    let (mut t, h) = setup(
+        vec![mon("m1", 0.0), mon("m2", W)],
+        &[win("com.a", "a", 0.0), win("com.b", "b", 300.0)],
+    );
+    // The user drags `b` so its centre lands on the second monitor.
+    t.fake()
+        .user_set_frame(h[1], Rect::new(W + 100.0, 50.0, 400.0, 300.0));
+    t.settle();
+    let b = t.r.wins[t.r.by_handle[&h[1]]].ws;
+    let m2 =
+        t.r.monitors
+            .iter()
+            .find(|(_, m)| m.info.uuid == "m2")
+            .map(|(i, _)| i)
+            .unwrap();
+    assert_eq!(t.r.ws_monitor(b), m2, "b now lives on the second monitor");
+    assert_eq!(t.frame(h[0]).w, W, "a has the first monitor to itself");
+    assert_eq!(t.frame(h[1]), Rect::new(W, 0.0, W, H), "b fills the second");
+}
+
+#[test]
+fn dragging_a_tile_over_a_sibling_swaps_them() {
+    let (mut t, h) = setup(
+        vec![mon("m1", 0.0)],
+        &[win("com.a", "a", 0.0), win("com.b", "b", 500.0)],
+    );
+    let a_before = t.frame(h[0]);
+    // Drop `a` over `b`'s half.
+    t.fake()
+        .user_set_frame(h[0], Rect::new(600.0, 100.0, 300.0, 300.0));
+    t.settle();
+    assert_eq!(t.frame(h[1]), a_before, "b took a's slot");
+    assert_eq!(t.frame(h[0]).x, W / 2.0, "a took b's slot");
+}

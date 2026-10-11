@@ -493,7 +493,7 @@ impl<P: Platform> Reactor<P> {
     }
 
     /// Move a window to another workspace (created on demand by the caller).
-    fn move_node(&mut self, id: WindowId, to: WorkspaceId, follow: bool) -> CmdResult {
+    pub(super) fn move_node(&mut self, id: WindowId, to: WorkspaceId, follow: bool) -> CmdResult {
         let from = self.wins[id].ws;
         if from == to {
             return ok();

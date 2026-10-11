@@ -226,6 +226,7 @@ impl Shared {
             frame: Rect::new(p.x, p.y, sz.width, sz.height),
             minimized: b(5),
             fullscreen: b(6),
+            resizable: el.is_settable("AXSize"),
         })
     }
 

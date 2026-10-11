@@ -41,6 +41,9 @@ pub struct WindowInfo {
     pub minimized: bool,
     /// macOS native fullscreen (`AXFullScreen`).
     pub fullscreen: bool,
+    /// Whether the app lets its size be set (`AXSize` settable). Fixed-size
+    /// windows (System Settings, Calculator, most dialogs) float.
+    pub resizable: bool,
 }
 
 /// Order of AX attribute writes. Some apps clamp a size set before the

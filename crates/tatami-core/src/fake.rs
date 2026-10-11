@@ -162,6 +162,7 @@ impl FakePlatform {
             frame,
             minimized: false,
             fullscreen: false,
+            resizable: true,
         };
         if st.observed.contains(&pid) {
             st.events.push(PlatformEvent::WindowCreated(info.clone()));
@@ -190,6 +191,14 @@ impl FakePlatform {
     }
 
     /// The user drags or resizes a window.
+    /// Mark a window fixed-size (its app refuses `AXSize` writes). Set it
+    /// before the reactor adopts the window.
+    pub fn set_resizable(&self, w: WindowHandle, on: bool) {
+        if let Ok(win) = self.st.borrow_mut().window(w) {
+            win.info.resizable = on;
+        }
+    }
+
     pub fn user_set_frame(&self, w: WindowHandle, r: Rect) {
         self.st.borrow_mut().apply_frame(w, r);
     }

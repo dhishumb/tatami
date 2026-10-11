@@ -121,6 +121,17 @@ impl AxElement {
         as_string(&*self.attr(name)?).ok_or(AXError::IllegalArgument)
     }
 
+    /// Whether the app allows writes to `name` (`AXUIElementIsAttributeSettable`).
+    pub fn is_settable(&self, name: &'static str) -> bool {
+        let mut flag: u8 = 0;
+        // SAFETY: `name` is a valid CFString for the call; `flag` is a valid out-slot.
+        let err = unsafe {
+            self.0
+                .is_attribute_settable(&CFString::from_static_str(name), NonNull::from(&mut flag))
+        };
+        err == AXError::Success && flag != 0
+    }
+
     pub fn attr_bool(&self, name: &'static str) -> AxResult<bool> {
         as_bool(&*self.attr(name)?).ok_or(AXError::IllegalArgument)
     }

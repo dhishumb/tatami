@@ -57,6 +57,8 @@ pub enum Outcome {
 /// Apps that appear without an `AppLaunched` (not registered with
 /// LaunchServices) are found by scanning the window server this often.
 const APP_SCAN_EVERY: Duration = Duration::from_secs(3);
+/// A hand-dragged tile is acted on this long after its last move event.
+const DRAG_SETTLE: Duration = Duration::from_millis(200);
 const FLASH_FOR: Duration = Duration::from_millis(2500);
 /// Read-back deadlines after each attempt. Short, because a window that is
 /// going to refuse a size does so at once and every retry is a visible
@@ -162,6 +164,8 @@ pub struct Reactor<P: Platform> {
     status_dirty: bool,
     /// A short message in the status item (a key that failed), and when it expires.
     flash: Option<(String, Instant)>,
+    /// A tiled window the user is moving by hand, and when to act on it.
+    drag: Option<(WindowId, Instant)>,
     /// Windows whose app refused a frame write outright; floated at the end of the step.
     unmanageable: Vec<WindowId>,
     /// Next window-server scan for apps NSWorkspace never told us about.
@@ -335,6 +339,7 @@ impl<P: Platform> Reactor<P> {
             trusted: true,
             dirty: false,
             flash: None,
+            drag: None,
             unmanageable: Vec::new(),
             next_app_scan: now + APP_SCAN_EVERY,
             out: Vec::new(),
@@ -571,6 +576,7 @@ impl<P: Platform> Reactor<P> {
             self.next_app_scan = now + APP_SCAN_EVERY;
             self.rescan_new_apps();
         }
+        self.settle_drag();
         if self.flash.as_ref().is_some_and(|(_, until)| *until <= now) {
             self.flash = None;
             self.status_dirty = true;
@@ -587,7 +593,8 @@ impl<P: Platform> Reactor<P> {
         let tx = self.txs.iter().map(|t| t.deadline).min();
         let rs = self.restore.as_ref().and_then(|s| s.next_deadline());
         let fl = self.flash.as_ref().map(|(_, t)| *t);
-        [self.keys.due(), tx, rs, fl, Some(self.next_app_scan)]
+        let dr = self.drag.map(|(_, t)| t);
+        [self.keys.due(), tx, rs, fl, dr, Some(self.next_app_scan)]
             .into_iter()
             .flatten()
             .min()
@@ -1100,6 +1107,54 @@ impl<P: Platform> Reactor<P> {
         }
     }
 
+    /// A hand-dragged tile has come to rest. Dropped on another monitor it
+    /// moves there; dropped over a sibling tile the two swap; otherwise it
+    /// snaps back. (Resizing by hand also ends here and snaps back.)
+    fn settle_drag(&mut self) {
+        let Some((id, at)) = self.drag else {
+            return;
+        };
+        if at > self.now {
+            return;
+        }
+        self.drag = None;
+        let Some(m) = self.wins.get(id) else {
+            return;
+        };
+        if !m.w.kind.in_tree() {
+            return;
+        }
+        let (ws, c) = (m.ws, m.w.frame.center());
+        let home = self.ws_monitor(ws);
+        let there = self
+            .monitors
+            .iter()
+            .find(|(_, mon)| mon.info.frame.contains(c))
+            .map(|(i, _)| i);
+        if let Some(tm) = there
+            && tm != home
+            && let Some(to) = self.visible_ws(tm)
+        {
+            if let Err(e) = self.move_node(id, to, true) {
+                tracing::debug!("drag to monitor: {e}");
+                self.relayout(ws);
+            }
+            return;
+        }
+        let other = self.ws_windows(ws).into_iter().find(|&o| {
+            o != id && {
+                let w = &self.wins[o];
+                w.leaf.is_some() && w.w.expected.unwrap_or(w.w.frame).contains(c)
+            }
+        });
+        if let Some(o) = other
+            && let (Some(a), Some(b)) = (self.wins[id].leaf, self.wins[o].leaf)
+        {
+            self.tree.swap_leaves(a, b);
+        }
+        self.relayout(ws);
+    }
+
     /// The monitor containing the pointer.
     fn monitor_under_mouse(&self) -> Option<MonitorId> {
         let p = self.p.mouse_location()?;
@@ -1230,7 +1285,9 @@ impl<P: Platform> Reactor<P> {
         }
         let kind = if info.fullscreen {
             WindowKind::NativeFullscreen
-        } else if rule.is_some_and(|r| r.float) {
+        } else if rule.is_some_and(|r| r.float) || !info.resizable {
+            // A fixed-size window can never fill a tile; it floats where
+            // its app put it.
             WindowKind::Floating
         } else {
             WindowKind::Tiled
@@ -1834,8 +1891,10 @@ impl<P: Platform> Reactor<P> {
                 if full && self.check_native_fullscreen(id) {
                     return;
                 }
-                // A user drag or resize of a tiled window: snap back.
-                self.relayout(ws);
+                // The user is dragging or resizing a tiled window. Decide
+                // once it settles (see `settle_drag`), not on every move
+                // event, or the window fights the pointer.
+                self.drag = Some((id, self.now + DRAG_SETTLE));
             }
             WindowKind::Floating => {
                 if !self.model.is_visible(ws) {

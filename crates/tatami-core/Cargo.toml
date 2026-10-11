@@ -1,0 +1,21 @@
+[package]
+name = "tatami-core"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[features]
+# In-memory `Platform` for reactor tests in this and downstream crates.
+fake = []
+
+[dependencies]
+tatami-protocol = { workspace = true }
+tatami-keymap = { workspace = true }
+tatami-config = { workspace = true }
+tatami-state = { workspace = true }
+serde_json = { workspace = true }
+slotmap = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

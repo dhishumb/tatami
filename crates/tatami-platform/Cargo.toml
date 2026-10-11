@@ -1,0 +1,72 @@
+[package]
+name = "tatami-platform"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+tatami-core = { workspace = true }
+tatami-protocol = { workspace = true }
+tracing = { workspace = true }
+objc2 = { workspace = true }
+objc2-foundation = { workspace = true, features = [
+    "NSString",
+    "NSDictionary",
+    "NSValue",
+    "NSURL",
+    "NSArray",
+    "NSEnumerator",
+    "NSNotification",
+    "NSOperation",
+    "NSAttributedString",
+    "NSGeometry",
+    "NSObjCRuntime",
+    "block2",
+] }
+objc2-app-kit = { workspace = true, features = [
+    "NSScreen",
+    "NSGraphics",
+    "NSRunningApplication",
+    "NSWorkspace",
+    "NSApplication",
+    "NSResponder",
+    "NSEvent",
+    "NSGraphicsContext",
+    "NSWindow",
+    "NSPanel",
+    "NSView",
+    "NSControl",
+    "NSTextField",
+    "NSColor",
+    "NSFont",
+    "NSFontDescriptor",
+    "NSAttributedString",
+    "NSStatusBar",
+    "NSStatusItem",
+    "NSStatusBarButton",
+    "NSButton",
+    "NSCell",
+    "NSImage",
+    "NSMenu",
+    "NSMenuItem",
+    "libc",
+    "block2",
+    "objc2-core-foundation",
+] }
+objc2-application-services = { workspace = true, features = ["AXUIElement", "AXValue", "AXError", "HIServices", "libc"] }
+objc2-core-foundation = { workspace = true, features = [
+    "CFString",
+    "CFArray",
+    "CFNumber",
+    "CFDictionary",
+    "CFUUID",
+    "CFCGTypes",
+    "CFRunLoop",
+    "CFDate",
+    "CFMachPort",
+    "block2",
+] }
+objc2-core-graphics = { workspace = true, features = ["CGDirectDisplay", "CGEvent", "CGEventTypes", "CGEventSource", "CGRemoteOperation", "CGWindow"] }
+block2 = { workspace = true }
+dispatch2 = { workspace = true }

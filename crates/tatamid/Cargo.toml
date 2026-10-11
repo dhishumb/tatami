@@ -1,0 +1,24 @@
+[package]
+name = "tatamid"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+tatami-core = { workspace = true }
+tatami-protocol = { workspace = true }
+tatami-keymap = { workspace = true }
+tatami-config = { workspace = true }
+tatami-state = { workspace = true }
+tatami-platform = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+notify-debouncer-mini = { workspace = true }
+signal-hook = { workspace = true }
+dispatch2 = { workspace = true }
+embed_plist = { workspace = true }
+objc2 = { workspace = true }
+serde_json = { workspace = true }
+

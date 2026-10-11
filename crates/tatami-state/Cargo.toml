@@ -1,0 +1,14 @@
+[package]
+name = "tatami-state"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+tatami-protocol = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }

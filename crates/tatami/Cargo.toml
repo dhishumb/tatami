@@ -1,0 +1,13 @@
+[package]
+name = "tatami"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+tatami-protocol = { workspace = true }
+tatami-config = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+

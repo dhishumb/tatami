@@ -1,0 +1,154 @@
+# tatami's default keymap — the "tatami" preset.
+#
+# Copy this file to ~/.config/tatami/keymaps/<name>.toml, edit it, and set
+# `[keys] preset = "<name>"` in ~/.config/tatami/config.toml. Or keep the
+# preset and just override a few chords in the `[keys]` table of
+# config.toml.
+#
+# Shape:
+#   "chord" = "command"               # a direct chord (works from any app)
+#   "chord" = ["command", "normal"]   # a list runs in order; "normal" leaves a mode
+#   "chord" = []                      # unbind: the key reaches the app again
+#   [modes.<name>]                    # single keys that work inside a mode
+#   [modes."*"]                       # keys bound into every mode
+#
+# Chords: alt / shift / ctrl / cmd + a key ("alt+h", "alt+shift+1",
+# "esc", "left", "f5", "?"); AeroSpace's "alt-shift-h" spelling works
+# too. Keys are where they sit on a US keyboard, whatever the input
+# source, so "?" means shift+/ and "+" means shift+=. Commands are
+# AeroSpace's words (`focus left`, `move-node-to-workspace 3`) plus
+# `normal`, `help`, `checkpoint` and `quit`; a line may chain several
+# with `;`.
+#
+# Alt is the leader. Outside a mode only alt chords are looked at, and
+# an alt chord this file doesn't bind still reaches the app — alt+enter
+# is left alone on purpose. Hold alt by itself for a moment and the
+# which-key sheet lists every chord below; pause after a mode chord
+# (alt+w) and it lists that mode's keys.
+#
+# Header options:
+#   extends = "<preset>"        start from another preset, then apply this file
+#   passthrough = ["<mode>"]    modes whose unbound keys go to the app
+
+# ---- Direct alt chords: one press, one action. The ones you do every
+# minute — moving focus, moving windows, switching workspaces.
+
+"alt+/" = "help"
+# Next / previous tile in tree order, wrapping: the "just give me the other
+# window" keys when you don't want to think about direction.
+"alt+n" = "focus dfs-next"
+"alt+p" = "focus dfs-prev"
+"alt+h" = "focus left"
+"alt+j" = "focus down"
+"alt+k" = "focus up"
+"alt+l" = "focus right"
+"alt+shift+h" = "move left"
+"alt+shift+j" = "move down"
+"alt+shift+k" = "move up"
+"alt+shift+l" = "move right"
+"alt+tab" = "workspace-back-and-forth"
+"alt+f" = "fullscreen"
+"alt+t" = "layout floating tiling"
+"alt+e" = "layout tiles horizontal vertical"
+"alt+a" = "layout accordion horizontal vertical"
+# Explicit splits, i3-style: wrap the focused window in a container so the
+# next window (or a move into it) lands below (`v`) or beside (`b`) it.
+"alt+v" = "split vertical"
+"alt+b" = "split horizontal"
+"alt+1" = "workspace 1"
+"alt+2" = "workspace 2"
+"alt+3" = "workspace 3"
+"alt+4" = "workspace 4"
+"alt+5" = "workspace 5"
+"alt+6" = "workspace 6"
+"alt+7" = "workspace 7"
+"alt+8" = "workspace 8"
+"alt+9" = "workspace 9"
+# The window goes, and you go with it.
+"alt+shift+1" = ["move-node-to-workspace 1", "workspace 1"]
+"alt+shift+2" = ["move-node-to-workspace 2", "workspace 2"]
+"alt+shift+3" = ["move-node-to-workspace 3", "workspace 3"]
+"alt+shift+4" = ["move-node-to-workspace 4", "workspace 4"]
+"alt+shift+5" = ["move-node-to-workspace 5", "workspace 5"]
+"alt+shift+6" = ["move-node-to-workspace 6", "workspace 6"]
+"alt+shift+7" = ["move-node-to-workspace 7", "workspace 7"]
+"alt+shift+8" = ["move-node-to-workspace 8", "workspace 8"]
+"alt+shift+9" = ["move-node-to-workspace 9", "workspace 9"]
+
+# ---- The four mode chords. Press one, then a single key; Esc backs out.
+# Pause after the chord and the sheet lists the keys, so the modes are
+# self-documenting — you only have to remember which noun you mean.
+
+"alt+w" = "mode workspaces"
+"alt+m" = "mode move"
+"alt+r" = "mode resize"
+"alt+s" = "mode service"
+
+# Esc / Enter leave any mode.
+[modes."*"]
+"esc" = "normal"
+"enter" = "normal"
+
+# ---- alt+w — workspaces and monitors. One-shot: a key does its thing
+# and you are back in normal mode.
+
+[modes.workspaces]
+"h" = ["workspace prev", "normal"]
+"l" = ["workspace next", "normal"]
+"n" = ["focus-monitor next", "normal"]
+"p" = ["focus-monitor prev", "normal"]
+"m" = ["move-workspace-to-monitor next", "normal"]
+"1" = ["workspace 1", "normal"]
+"2" = ["workspace 2", "normal"]
+"3" = ["workspace 3", "normal"]
+"4" = ["workspace 4", "normal"]
+"5" = ["workspace 5", "normal"]
+"6" = ["workspace 6", "normal"]
+"7" = ["workspace 7", "normal"]
+"8" = ["workspace 8", "normal"]
+"9" = ["workspace 9", "normal"]
+
+# ---- alt+m — move. Sticky: hjkl shove the window around the tree,
+# HJKL throw it to the next monitor (and follow it), until Esc / Enter.
+
+[modes.move]
+"h" = "move left"
+"j" = "move down"
+"k" = "move up"
+"l" = "move right"
+"H" = "move-node-to-monitor left --focus-follows-window"
+"J" = "move-node-to-monitor down --focus-follows-window"
+"K" = "move-node-to-monitor up --focus-follows-window"
+"L" = "move-node-to-monitor right --focus-follows-window"
+"n" = "swap dfs-next"
+"1" = "move-node-to-workspace 1"
+"2" = "move-node-to-workspace 2"
+"3" = "move-node-to-workspace 3"
+"4" = "move-node-to-workspace 4"
+"5" = "move-node-to-workspace 5"
+"6" = "move-node-to-workspace 6"
+"7" = "move-node-to-workspace 7"
+"8" = "move-node-to-workspace 8"
+"9" = "move-node-to-workspace 9"
+
+# ---- alt+r — resize. Sticky: hold a key and it repeats. `=` evens
+# everything out again.
+
+[modes.resize]
+"h" = "resize width -50"
+"l" = "resize width +50"
+"j" = "resize height +50"
+"k" = "resize height -50"
+"-" = "resize smart -50"
+"+" = "resize smart +50"
+"=" = "balance-sizes"
+
+# ---- alt+s — service: the rare, the global and the drastic. One-shot.
+
+[modes.service]
+"r" = ["reload-config", "normal"]
+"f" = ["flatten-workspace-tree", "normal"]
+"b" = ["balance-sizes", "normal"]
+"c" = ["checkpoint save", "normal"]
+"e" = ["enable toggle", "normal"]
+"q" = ["quit", "normal"]

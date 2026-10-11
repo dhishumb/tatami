@@ -1,0 +1,59 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "MIT"
+authors = ["vikram <vikramgupta2@gmail.com>"]
+
+[workspace.dependencies]
+# Internal
+tatami-protocol = { path = "crates/tatami-protocol" }
+tatami-keymap = { path = "crates/tatami-keymap" }
+tatami-core = { path = "crates/tatami-core" }
+tatami-config = { path = "crates/tatami-config" }
+tatami-state = { path = "crates/tatami-state" }
+tatami-platform = { path = "crates/tatami-platform" }
+
+# Errors
+anyhow = "1"
+thiserror = "2"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Misc
+slotmap = { version = "1", features = ["serde"] }
+dirs = "6"
+tempfile = "3"
+notify-debouncer-mini = "0.7"
+signal-hook = "0.3"
+nix = { version = "0.30", features = ["socket", "user"] }
+
+# macOS bindings (rift's proven stack)
+objc2 = { version = "0.6", default-features = false, features = ["std", "exception"] }
+objc2-foundation = { version = "0.3", default-features = false }
+objc2-app-kit = { version = "0.3", default-features = false }
+objc2-application-services = { version = "0.3", default-features = false }
+objc2-core-foundation = { version = "0.3", default-features = false }
+objc2-core-graphics = { version = "0.3", default-features = false }
+block2 = { version = "0.6", default-features = false, features = ["alloc"] }
+dispatch2 = { version = "0.3", default-features = false, features = ["std"] }
+embed_plist = "1.2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+strip = true
+
+[profile.dev]
+opt-level = 1

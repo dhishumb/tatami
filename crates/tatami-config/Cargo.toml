@@ -1,0 +1,16 @@
+[package]
+name = "tatami-config"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+tatami-protocol = { workspace = true }
+tatami-keymap = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+dirs = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+

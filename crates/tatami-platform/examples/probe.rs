@@ -203,7 +203,7 @@ fn windows(mut p: MacPlatform, only: Option<i32>) -> Result<(), String> {
         for w in ws {
             n += 1;
             println!(
-                "{:>7} {:>6} {:<18.18} {:<20} {:<22} min={} fs={} {:?}",
+                "{:>7} {:>6} {:<18.18} {:<20} {:<22} min={} fs={} rz={} {:?}",
                 w.handle.0,
                 w.pid,
                 app.name,
@@ -211,6 +211,7 @@ fn windows(mut p: MacPlatform, only: Option<i32>) -> Result<(), String> {
                 fmt_rect(&w.frame),
                 w.minimized as u8,
                 w.fullscreen as u8,
+                w.resizable as u8,
                 w.title
             );
         }

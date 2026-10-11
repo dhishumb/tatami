@@ -1264,7 +1264,7 @@ impl<P: Platform> Reactor<P> {
         if info.role != "AXWindow" {
             return None;
         }
-        let rule = self.cfg.rules.iter().find(|r| {
+        let rule = self.cfg.rules_in_effect().find(|r| {
             r.app_id
                 .as_ref()
                 .is_none_or(|id| app.bundle_id.as_deref() == Some(id.as_str()))

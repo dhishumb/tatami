@@ -437,6 +437,7 @@ fn shutdown(daemon: &Rc<RefCell<Daemon>>) {
     if d.want_exit && d.main_loop_stopped {
         return;
     }
+    tracing::info!("shutting down: quit requested");
     d.want_exit = true;
     let out = d.reactor.shutdown();
     let now = Instant::now();

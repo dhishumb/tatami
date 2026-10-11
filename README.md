@@ -98,8 +98,8 @@ launch_apps = true
 timeout_s = 60
 ignore = []                    # bundle ids never relaunched
 
-[[rules]]
-app_id = "com.apple.systempreferences"
+[[rules]]                      # yours are checked first; built-in rules float System Settings,
+app_id = "com.apple.calculator" # Calculator, Archive Utility, Installer, Digital Color Meter
 float = true                   # or workspace = "3", or ignore = true
 
 [keys]

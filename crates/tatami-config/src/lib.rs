@@ -342,6 +342,11 @@ impl Config {
         Ok(cfg)
     }
 
+    /// The user's rules, then the built-in ones (so the user's win).
+    pub fn rules_in_effect(&self) -> impl Iterator<Item = &Rule> {
+        self.rules.iter().chain(BUILTIN_RULES.iter())
+    }
+
     /// The keymap this config describes, plus every warning met building
     /// it (also logged).
     pub fn keymap(&self) -> (Keymap<Action>, Vec<String>) {
@@ -359,6 +364,32 @@ pub fn load(path: &Path) -> Result<Config, ConfigError> {
             source,
         }),
     }
+}
+
+/// Apps whose main window has a fixed width or is a utility panel: tiling
+/// them pins the row to their size, so they float. Consulted after the
+/// user's rules, which therefore win (an `ignore` or a `workspace` rule for
+/// the same app takes precedence). See `Config::rules_in_effect`.
+pub static BUILTIN_RULES: std::sync::LazyLock<Vec<Rule>> = std::sync::LazyLock::new(builtin_rules);
+
+fn builtin_rules() -> Vec<Rule> {
+    [
+        "com.apple.systempreferences",
+        "com.apple.calculator",
+        "com.apple.archiveutility",
+        "com.apple.installer",
+        "com.apple.DigitalColorMeter",
+    ]
+    .into_iter()
+    .map(|id| Rule {
+        app_id: Some(id.to_string()),
+        app_name_regex: None,
+        title_regex: None,
+        float: true,
+        workspace: None,
+        ignore: false,
+    })
+    .collect()
 }
 
 /// `$TATAMI_CONFIG`, else `$XDG_CONFIG_HOME/tatami/config.toml`, else
@@ -660,6 +691,30 @@ preset = "tatami"
             km.lookup_mode("service", &c("q")),
             Some(&[Action::Quit, Action::Normal][..])
         );
+    }
+
+    #[test]
+    fn builtin_float_rules_apply_after_the_users() {
+        let cfg = Config::parse("", Path::new("x")).unwrap();
+        assert!(
+            cfg.rules.is_empty(),
+            "built-ins are not stored in the config"
+        );
+        let settings = cfg
+            .rules_in_effect()
+            .find(|r| r.app_id.as_deref() == Some("com.apple.systempreferences"))
+            .expect("System Settings floats by default");
+        assert!(settings.float && !settings.ignore);
+        let cfg = Config::parse(
+            "[[rules]]\napp_id = \"com.apple.systempreferences\"\nignore = true\n",
+            Path::new("x"),
+        )
+        .unwrap();
+        let first = cfg
+            .rules_in_effect()
+            .find(|r| r.app_id.as_deref() == Some("com.apple.systempreferences"))
+            .unwrap();
+        assert!(first.ignore, "the user's rule comes first and wins");
     }
 
     #[test]

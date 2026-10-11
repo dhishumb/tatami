@@ -1174,16 +1174,15 @@ pub(crate) mod tests {
     fn neighbor_in_a_2x2_grid() {
         let (t, root, l, _) = grid();
         let mut out = Vec::new();
-        crate::layout::compute(
-            &t,
-            root,
-            Rect::new(0.0, 0.0, 1000.0, 800.0),
-            &crate::layout::Gaps::default(),
-            None,
-            0.0,
-            &|_| None,
-            &mut out,
-        );
+        let gaps = crate::layout::Gaps::default();
+        let p = crate::layout::Params {
+            area: Rect::new(0.0, 0.0, 1000.0, 800.0),
+            gaps: &gaps,
+            focused: None,
+            accordion_padding: 0.0,
+            min: &|_| None,
+        };
+        crate::layout::compute(&t, root, &p, &mut out);
         let frames = |w: WindowId| out.iter().find(|p| p.window == w).map(|p| p.rect);
         assert_eq!(t.neighbor(l[0], Dir::Right, &frames), Some(l[2]));
         assert_eq!(t.neighbor(l[0], Dir::Down, &frames), Some(l[1]));

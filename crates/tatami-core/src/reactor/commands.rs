@@ -682,10 +682,15 @@ impl<P: Platform> Reactor<P> {
         let mut cur = Some(leaf);
         let wins = &self.wins;
         let min = |w: WindowId| wins.get(w).and_then(|m| m.w.stubborn);
+        let params = layout::Params {
+            area,
+            gaps: &self.gaps,
+            focused: focus,
+            accordion_padding: self.pad,
+            min: &min,
+        };
         while let Some(n) = cur {
-            if let Some(r) =
-                layout::node_rect(&self.tree, root, area, &self.gaps, focus, self.pad, &min, n)
-            {
+            if let Some(r) = layout::node_rect(&self.tree, root, &params, n) {
                 sizes.push((n, len(r)));
             }
             cur = self.tree.parent(n);

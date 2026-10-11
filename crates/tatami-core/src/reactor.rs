@@ -1628,9 +1628,14 @@ impl<P: Platform> Reactor<P> {
         // layout itself; weights are never touched for it.
         let wins = &self.wins;
         let min = |w: WindowId| wins.get(w).and_then(|m| m.w.stubborn);
-        layout::compute(
-            &self.tree, root, area, &self.gaps, focus_leaf, self.pad, &min, &mut out,
-        );
+        let params = layout::Params {
+            area,
+            gaps: &self.gaps,
+            focused: focus_leaf,
+            accordion_padding: self.pad,
+            min: &min,
+        };
+        layout::compute(&self.tree, root, &params, &mut out);
         let mut changed = false;
         let mut overlapping = false;
         for p in &out {

@@ -46,6 +46,16 @@ pub struct Placement {
 /// A window's minimum size, if its app has shown it has one.
 pub type MinOf<'a> = &'a dyn Fn(WindowId) -> Option<Size>;
 
+/// Everything a layout pass needs besides the tree.
+pub struct Params<'a> {
+    /// The monitor's visible frame; outer gaps are applied inside it.
+    pub area: Rect,
+    pub gaps: &'a Gaps,
+    pub focused: Option<NodeId>,
+    pub accordion_padding: f64,
+    pub min: MinOf<'a>,
+}
+
 struct Ctx<'a> {
     inner: f64,
     focused: Option<NodeId>,
@@ -243,26 +253,17 @@ fn raised_index(
 /// Lay out the tree under `root` into `area` (the monitor's visible frame),
 /// appending one placement per window. Pending leaves take space but emit
 /// nothing.
-pub fn compute(
-    tree: &Tree,
-    root: NodeId,
-    area: Rect,
-    gaps: &Gaps,
-    focused: Option<NodeId>,
-    accordion_padding: f64,
-    min: MinOf<'_>,
-    out: &mut Vec<Placement>,
-) {
+pub fn compute(tree: &Tree, root: NodeId, p: &Params<'_>, out: &mut Vec<Placement>) {
     if !tree.contains(root) {
         return;
     }
     let ctx = Ctx {
-        inner: gaps.inner,
-        focused,
-        pad: accordion_padding,
-        min,
+        inner: p.gaps.inner,
+        focused: p.focused,
+        pad: p.accordion_padding,
+        min: p.min,
     };
-    place(tree, root, gaps.outer.apply(area), 0, &ctx, out);
+    place(tree, root, p.gaps.outer.apply(p.area), 0, &ctx, out);
 }
 
 fn place(tree: &Tree, id: NodeId, rect: Rect, z: u16, ctx: &Ctx, out: &mut Vec<Placement>) {
@@ -307,21 +308,14 @@ fn place(tree: &Tree, id: NodeId, rect: Rect, z: u16, ctx: &Ctx, out: &mut Vec<P
 
 /// The rect `compute` gives `node` (container or leaf), without laying out
 /// the rest of the tree: O(depth x siblings). Feeds `Tree::resize`.
-pub fn node_rect(
-    tree: &Tree,
-    root: NodeId,
-    area: Rect,
-    gaps: &Gaps,
-    focused: Option<NodeId>,
-    accordion_padding: f64,
-    min: MinOf<'_>,
-    node: NodeId,
-) -> Option<Rect> {
+pub fn node_rect(tree: &Tree, root: NodeId, prm: &Params<'_>, node: NodeId) -> Option<Rect> {
     if node == root {
-        return tree.contains(root).then(|| gaps.outer.apply(area));
+        return tree.contains(root).then(|| prm.gaps.outer.apply(prm.area));
     }
     let (p, i) = tree.index_in_parent(node)?;
-    let pr = node_rect(tree, root, area, gaps, focused, accordion_padding, min, p)?;
+    let pr = node_rect(tree, root, prm, p)?;
+    let (gaps, focused, accordion_padding, min) =
+        (prm.gaps, prm.focused, prm.accordion_padding, prm.min);
     let layout = tree.layout_of(p);
     let kids = tree.children(p);
     let n = kids.len();
@@ -366,7 +360,14 @@ mod tests {
         pad: f64,
     ) -> Vec<Placement> {
         let mut out = Vec::new();
-        compute(t, root, area, gaps, focused, pad, &|_| None, &mut out);
+        let p = Params {
+            area,
+            gaps,
+            focused,
+            accordion_padding: pad,
+            min: &|_| None,
+        };
+        compute(t, root, &p, &mut out);
         out
     }
 
@@ -387,16 +388,15 @@ mod tests {
         t.insert_window(root, Some(b), ws[2]);
         let min = |w: WindowId| (w == ws[1]).then_some(Size { w: 700.0, h: 0.0 });
         let mut out = Vec::new();
-        compute(
-            &t,
-            root,
-            Rect::new(0.0, 0.0, 1000.0, 800.0),
-            &gaps(0.0, 0.0),
-            None,
-            0.0,
-            &min,
-            &mut out,
-        );
+        let g = gaps(0.0, 0.0);
+        let p = Params {
+            area: Rect::new(0.0, 0.0, 1000.0, 800.0),
+            gaps: &g,
+            focused: None,
+            accordion_padding: 0.0,
+            min: &min,
+        };
+        compute(&t, root, &p, &mut out);
         let r = |w: WindowId| out.iter().find(|p| p.window == w).unwrap().rect;
         assert_eq!(r(ws[1]).w, 700.0);
         assert_eq!(r(ws[0]).w + r(ws[2]).w, 300.0);
@@ -414,16 +414,15 @@ mod tests {
         t.insert_window(root, Some(b), ws[2]);
         let min = |_: WindowId| Some(Size { w: 600.0, h: 0.0 });
         let mut out = Vec::new();
-        compute(
-            &t,
-            root,
-            Rect::new(0.0, 0.0, 1000.0, 800.0),
-            &gaps(0.0, 0.0),
-            None,
-            0.0,
-            &min,
-            &mut out,
-        );
+        let g = gaps(0.0, 0.0);
+        let p = Params {
+            area: Rect::new(0.0, 0.0, 1000.0, 800.0),
+            gaps: &g,
+            focused: None,
+            accordion_padding: 0.0,
+            min: &min,
+        };
+        compute(&t, root, &p, &mut out);
         let r = |w: WindowId| out.iter().find(|p| p.window == w).unwrap().rect;
         assert!(out.iter().all(|p| p.rect.w == 600.0));
         assert_eq!(r(ws[0]).x, 0.0);
@@ -645,12 +644,35 @@ mod tests {
         for p in &out {
             let leaf = t.leaf_of_window(root, p.window).unwrap();
             assert_eq!(
-                node_rect(&t, root, area, &g, None, 0.0, &|_| None, leaf),
+                node_rect(
+                    &t,
+                    root,
+                    &Params {
+                        area,
+                        gaps: &g,
+                        focused: None,
+                        accordion_padding: 0.0,
+                        min: &|_| None
+                    },
+                    leaf
+                ),
                 Some(p.rect)
             );
         }
         let v = t.parent(b).unwrap();
-        let vr = node_rect(&t, root, area, &g, None, 0.0, &|_| None, v).unwrap();
+        let vr = node_rect(
+            &t,
+            root,
+            &Params {
+                area,
+                gaps: &g,
+                focused: None,
+                accordion_padding: 0.0,
+                min: &|_| None,
+            },
+            v,
+        )
+        .unwrap();
         assert_eq!(vr.right(), area.right() - 5.0);
     }
 

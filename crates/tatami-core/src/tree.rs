@@ -1181,6 +1181,7 @@ pub(crate) mod tests {
             &crate::layout::Gaps::default(),
             None,
             0.0,
+            &|_| None,
             &mut out,
         );
         let frames = |w: WindowId| out.iter().find(|p| p.window == w).map(|p| p.rect);

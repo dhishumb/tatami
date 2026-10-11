@@ -1407,3 +1407,57 @@ fn flip_pairs_the_focused_window_with_its_neighbour_and_back() {
         "the pair merged into the row again"
     );
 }
+
+/// The user's 1920-wide monitor: four apps whose minimum widths add up to
+/// more than the screen. Repeated `flip` must keep every window on the
+/// monitor and must not thrash (bounded writes per flip).
+#[test]
+fn repeated_flip_with_min_width_windows_stays_on_screen_and_settles() {
+    let m = MonitorInfo {
+        uuid: "wide".into(),
+        name: "wide".into(),
+        frame: Rect::new(0.0, 0.0, 1920.0, 1080.0),
+        visible: Rect::new(0.0, 0.0, 1920.0, 1080.0),
+        is_main: true,
+    };
+    let (f, h) = fake_with(
+        vec![m.clone()],
+        &[
+            win("com.bruno", "Bruno", 0.0),
+            win("com.chrome", "Chrome", 480.0),
+            win("com.claude", "Claude", 960.0),
+            win("com.finder", "Finder", 1440.0),
+        ],
+    );
+    for (i, w) in [700.0, 500.0, 600.0, 485.0].into_iter().enumerate() {
+        f.set_behaviour(
+            h[i],
+            Behaviour {
+                min_size: Some(Size { w, h: 0.0 }),
+                ..Behaviour::default()
+            },
+        );
+    }
+    let mut t = start_logged(f, cfg(), None);
+    t.calls();
+    t.focus(h[1]);
+    t.calls();
+    for round in 0..6 {
+        t.ok("flip");
+        let calls = t.calls();
+        let writes: Vec<usize> = h.iter().map(|&w| set_frames(&calls, w).len()).collect();
+        let frames: Vec<Rect> = h.iter().map(|&w| t.frame(w)).collect();
+        eprintln!("flip {round}: writes {writes:?}");
+        for (w, r) in frames.iter().enumerate() {
+            eprintln!("   {w}: {:.0},{:.0} {:.0}x{:.0}", r.x, r.y, r.w, r.h);
+            assert!(
+                r.x >= -1.0 && r.y >= -1.0 && r.right() <= 1921.0 && r.bottom() <= 1081.0,
+                "flip {round}: window {w} off screen: {r:?}"
+            );
+        }
+        assert!(
+            writes.iter().all(|&n| n <= 3),
+            "flip {round}: thrash {writes:?}"
+        );
+    }
+}

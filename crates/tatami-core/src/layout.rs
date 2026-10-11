@@ -1,7 +1,7 @@
 //! Tree -> window rectangles. One pass, O(nodes), no allocation beyond the
 //! caller's reusable output vector.
 
-use tatami_protocol::{Axis, Rect};
+use tatami_protocol::{Axis, Rect, Size};
 
 use crate::ids::{NodeId, WindowId};
 use crate::tree::{Leaf, NodeKind, Tree};
@@ -43,10 +43,135 @@ pub struct Placement {
     pub z: u16,
 }
 
-struct Ctx {
+/// A window's minimum size, if its app has shown it has one.
+pub type MinOf<'a> = &'a dyn Fn(WindowId) -> Option<Size>;
+
+struct Ctx<'a> {
     inner: f64,
     focused: Option<NodeId>,
     pad: f64,
+    min: MinOf<'a>,
+}
+
+/// The least length `node` can take along `axis`: a window's known minimum;
+/// for tiles along the same axis the children's minimums plus gaps, else
+/// the largest child's.
+fn min_len(tree: &Tree, node: NodeId, axis: Axis, inner: f64, min: MinOf<'_>) -> f64 {
+    match &tree.node(node).kind {
+        NodeKind::Leaf(Leaf::Window(w)) => min(*w)
+            .map(|s| match axis {
+                Axis::H => s.w,
+                Axis::V => s.h,
+            })
+            .unwrap_or(0.0),
+        NodeKind::Leaf(Leaf::Pending(_)) => 0.0,
+        NodeKind::Container {
+            layout, children, ..
+        } => {
+            if children.is_empty() {
+                return 0.0;
+            }
+            let kids = children.iter().map(|&c| min_len(tree, c, axis, inner, min));
+            if !layout.is_accordion() && layout.axis() == axis {
+                kids.sum::<f64>() + inner * (children.len() - 1) as f64
+            } else {
+                kids.fold(0.0, f64::max)
+            }
+        }
+    }
+}
+
+/// Where each child of a tiles container goes along its axis: `(start, len)`
+/// per child. Weights share the space, but no child goes below its minimum
+/// (the others shrink to pay for it). When the minimums alone exceed the
+/// space, every child keeps its minimum and they overlap evenly, so all of
+/// them stay on the monitor rather than the last ones leaving it.
+fn tile_spans(
+    tree: &Tree,
+    kids: &[NodeId],
+    axis: Axis,
+    start: f64,
+    len: f64,
+    inner: f64,
+    min: MinOf<'_>,
+) -> Vec<(f64, f64)> {
+    let n = kids.len();
+    let avail = (len - inner * (n - 1) as f64).max(0.0);
+    let mins: Vec<f64> = kids
+        .iter()
+        .map(|&c| min_len(tree, c, axis, inner, min))
+        .collect();
+    let weights: Vec<f64> = kids.iter().map(|&c| weight(tree, c)).collect();
+    let mut lens = vec![0.0; n];
+    if mins.iter().sum::<f64>() <= avail {
+        // Water-filling: clamp whoever would fall below its minimum, share
+        // the rest by weight among the others, repeat until stable.
+        let mut clamped = vec![false; n];
+        loop {
+            let fixed: f64 = (0..n).filter(|&i| clamped[i]).map(|i| mins[i]).sum();
+            let wsum: f64 = (0..n).filter(|&i| !clamped[i]).map(|i| weights[i]).sum();
+            let free = (avail - fixed).max(0.0);
+            let mut changed = false;
+            for i in 0..n {
+                if clamped[i] {
+                    lens[i] = mins[i];
+                    continue;
+                }
+                let want = if wsum > 0.0 {
+                    free * weights[i] / wsum
+                } else {
+                    0.0
+                };
+                if want < mins[i] {
+                    clamped[i] = true;
+                    changed = true;
+                } else {
+                    lens[i] = want;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        // Whole points, the last unclamped child absorbing the rounding.
+        let mut cum = 0.0;
+        let mut out = Vec::with_capacity(n);
+        let last_free = (0..n).rev().find(|&i| !clamped[i]);
+        for i in 0..n {
+            let l = if Some(i) == last_free {
+                let rest: f64 = (i + 1..n).map(|j| lens[j].round()).sum();
+                (avail - cum - rest).max(0.0)
+            } else {
+                lens[i].round()
+            };
+            out.push((start + cum + i as f64 * inner, l));
+            cum += l;
+        }
+        return out;
+    }
+    // Overflow: minimums only, spaced so the first starts at the left edge
+    // and the last ends at the right edge.
+    for i in 0..n {
+        lens[i] = if mins[i] > 0.0 {
+            mins[i]
+        } else {
+            (avail * weights[i] / weights.iter().sum::<f64>()).round()
+        };
+    }
+    let total: f64 = lens.iter().sum();
+    let last = lens[n - 1];
+    let k = if total - last > 0.0 {
+        ((len - last) / (total - last)).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let mut cum = 0.0;
+    let mut out = Vec::with_capacity(n);
+    for &l in &lens {
+        out.push(((start + cum * k).round(), l));
+        cum += l;
+    }
+    out
 }
 
 fn span(r: &Rect, axis: Axis) -> (f64, f64) {
@@ -68,17 +193,6 @@ fn with_span(r: Rect, axis: Axis, start: f64, len: f64) -> Rect {
             h: len,
             ..r
         },
-    }
-}
-
-/// Offset of the boundary after `cum` of `total` weight. Interior
-/// boundaries round to whole points; the last one is exact, so the
-/// children always sum to `avail` with no stray pixel.
-fn boundary(avail: f64, cum: f64, total: f64, is_end: bool) -> f64 {
-    if is_end {
-        avail
-    } else {
-        (avail * cum / total).round()
     }
 }
 
@@ -136,6 +250,7 @@ pub fn compute(
     gaps: &Gaps,
     focused: Option<NodeId>,
     accordion_padding: f64,
+    min: MinOf<'_>,
     out: &mut Vec<Placement>,
 ) {
     if !tree.contains(root) {
@@ -145,6 +260,7 @@ pub fn compute(
         inner: gaps.inner,
         focused,
         pad: accordion_padding,
+        min,
     };
     place(tree, root, gaps.outer.apply(area), 0, &ctx, out);
 }
@@ -180,23 +296,9 @@ fn place(tree: &Tree, id: NodeId, rect: Rect, z: u16, ctx: &Ctx, out: &mut Vec<P
                     place(tree, c, r, z.saturating_add(dz), ctx, out);
                 }
             } else {
-                let avail = (len - ctx.inner * (n - 1) as f64).max(0.0);
-                let total: f64 = children.iter().map(|&c| weight(tree, c)).sum();
-                let mut cum = 0.0;
-                let mut prev = 0.0;
-                for (i, &c) in children.iter().enumerate() {
-                    cum += weight(tree, c);
-                    let next = boundary(avail, cum, total, i + 1 == n);
-                    let pos = start + prev + i as f64 * ctx.inner;
-                    place(
-                        tree,
-                        c,
-                        with_span(rect, axis, pos, next - prev),
-                        z,
-                        ctx,
-                        out,
-                    );
-                    prev = next;
+                let spans = tile_spans(tree, children, axis, start, len, ctx.inner, ctx.min);
+                for (&c, (pos, l)) in children.iter().zip(spans) {
+                    place(tree, c, with_span(rect, axis, pos, l), z, ctx, out);
                 }
             }
         }
@@ -212,13 +314,14 @@ pub fn node_rect(
     gaps: &Gaps,
     focused: Option<NodeId>,
     accordion_padding: f64,
+    min: MinOf<'_>,
     node: NodeId,
 ) -> Option<Rect> {
     if node == root {
         return tree.contains(root).then(|| gaps.outer.apply(area));
     }
     let (p, i) = tree.index_in_parent(node)?;
-    let pr = node_rect(tree, root, area, gaps, focused, accordion_padding, p)?;
+    let pr = node_rect(tree, root, area, gaps, focused, accordion_padding, min, p)?;
     let layout = tree.layout_of(p);
     let kids = tree.children(p);
     let n = kids.len();
@@ -234,17 +337,8 @@ pub fn node_rect(
             (len - lead - trail).max(0.0),
         ));
     }
-    let avail = (len - gaps.inner * (n - 1) as f64).max(0.0);
-    let total: f64 = kids.iter().map(|&c| weight(tree, c)).sum();
-    let before: f64 = kids[..i].iter().map(|&c| weight(tree, c)).sum();
-    let a = boundary(avail, before, total, false);
-    let b = boundary(avail, before + weight(tree, kids[i]), total, i + 1 == n);
-    Some(with_span(
-        pr,
-        axis,
-        start + a + i as f64 * gaps.inner,
-        b - a,
-    ))
+    let (pos, l) = tile_spans(tree, kids, axis, start, len, gaps.inner, min)[i];
+    Some(with_span(pr, axis, pos, l))
 }
 
 /// Our fullscreen: the monitor's visible frame, optionally keeping the
@@ -272,7 +366,7 @@ mod tests {
         pad: f64,
     ) -> Vec<Placement> {
         let mut out = Vec::new();
-        compute(t, root, area, gaps, focused, pad, &mut out);
+        compute(t, root, area, gaps, focused, pad, &|_| None, &mut out);
         out
     }
 
@@ -281,6 +375,60 @@ mod tests {
             inner,
             outer: Insets::uniform(outer),
         }
+    }
+
+    #[test]
+    fn a_minimum_is_honoured_and_the_others_pay_for_it() {
+        let ws = wids(3);
+        let mut t = Tree::new();
+        let root = t.new_root(Layout::HTiles);
+        let a = t.insert_window(root, None, ws[0]);
+        let b = t.insert_window(root, Some(a), ws[1]);
+        t.insert_window(root, Some(b), ws[2]);
+        let min = |w: WindowId| (w == ws[1]).then_some(Size { w: 700.0, h: 0.0 });
+        let mut out = Vec::new();
+        compute(
+            &t,
+            root,
+            Rect::new(0.0, 0.0, 1000.0, 800.0),
+            &gaps(0.0, 0.0),
+            None,
+            0.0,
+            &min,
+            &mut out,
+        );
+        let r = |w: WindowId| out.iter().find(|p| p.window == w).unwrap().rect;
+        assert_eq!(r(ws[1]).w, 700.0);
+        assert_eq!(r(ws[0]).w + r(ws[2]).w, 300.0);
+        assert_eq!(r(ws[0]).w, r(ws[2]).w);
+        assert_eq!(r(ws[2]).right(), 1000.0);
+    }
+
+    #[test]
+    fn minimums_that_do_not_fit_overlap_evenly_and_stay_on_screen() {
+        let ws = wids(3);
+        let mut t = Tree::new();
+        let root = t.new_root(Layout::HTiles);
+        let a = t.insert_window(root, None, ws[0]);
+        let b = t.insert_window(root, Some(a), ws[1]);
+        t.insert_window(root, Some(b), ws[2]);
+        let min = |_: WindowId| Some(Size { w: 600.0, h: 0.0 });
+        let mut out = Vec::new();
+        compute(
+            &t,
+            root,
+            Rect::new(0.0, 0.0, 1000.0, 800.0),
+            &gaps(0.0, 0.0),
+            None,
+            0.0,
+            &min,
+            &mut out,
+        );
+        let r = |w: WindowId| out.iter().find(|p| p.window == w).unwrap().rect;
+        assert!(out.iter().all(|p| p.rect.w == 600.0));
+        assert_eq!(r(ws[0]).x, 0.0);
+        assert_eq!(r(ws[2]).right(), 1000.0);
+        assert_eq!(r(ws[1]).x, 200.0, "evenly spaced between the two edges");
     }
 
     #[test]
@@ -496,10 +644,13 @@ mod tests {
         let out = run(&t, root, area, &g, None, 0.0);
         for p in &out {
             let leaf = t.leaf_of_window(root, p.window).unwrap();
-            assert_eq!(node_rect(&t, root, area, &g, None, 0.0, leaf), Some(p.rect));
+            assert_eq!(
+                node_rect(&t, root, area, &g, None, 0.0, &|_| None, leaf),
+                Some(p.rect)
+            );
         }
         let v = t.parent(b).unwrap();
-        let vr = node_rect(&t, root, area, &g, None, 0.0, v).unwrap();
+        let vr = node_rect(&t, root, area, &g, None, 0.0, &|_| None, v).unwrap();
         assert_eq!(vr.right(), area.right() - 5.0);
     }
 

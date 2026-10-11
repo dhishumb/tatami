@@ -90,8 +90,6 @@ struct Managed {
     leaf: Option<NodeId>,
     /// Floating window's frame from before it was parked.
     float_frame: Option<Rect>,
-    /// Its slot was already widened once for a stubborn size.
-    grown: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -1266,7 +1264,6 @@ impl<P: Platform> Reactor<P> {
             ws,
             leaf: None,
             float_frame: None,
-            grown: false,
         });
         self.by_handle.insert(handle, id);
         self.dirty = true;
@@ -1627,15 +1624,13 @@ impl<P: Platform> Reactor<P> {
         let area = mon.info.visible;
         let mut out = std::mem::take(&mut self.scratch);
         out.clear();
+        // A window that has refused a size gets at least that size from the
+        // layout itself; weights are never touched for it.
+        let wins = &self.wins;
+        let min = |w: WindowId| wins.get(w).and_then(|m| m.w.stubborn);
         layout::compute(
-            &self.tree, root, area, &self.gaps, focus_leaf, self.pad, &mut out,
+            &self.tree, root, area, &self.gaps, focus_leaf, self.pad, &min, &mut out,
         );
-        if self.grow_stubborn(&out) {
-            out.clear();
-            layout::compute(
-                &self.tree, root, area, &self.gaps, focus_leaf, self.pad, &mut out,
-            );
-        }
         let mut changed = false;
         let mut overlapping = false;
         for p in &out {
@@ -1676,50 +1671,6 @@ impl<P: Platform> Reactor<P> {
             }
         }
         self.scratch = out;
-    }
-
-    /// Widen (once) the slot of a window whose stubborn size exceeds it along
-    /// its parent's axis. Returns whether any weight changed.
-    fn grow_stubborn(&mut self, out: &[Placement]) -> bool {
-        let mut grew = false;
-        for p in out {
-            let m = &self.wins[p.window];
-            let (Some(s), Some(leaf)) = (m.w.stubborn, m.leaf) else {
-                continue;
-            };
-            if m.grown {
-                continue;
-            }
-            let Some(parent) = self.tree.parent(leaf) else {
-                continue;
-            };
-            let l = self.tree.layout_of(parent);
-            let kids = self.tree.children(parent);
-            if l.is_accordion() || kids.len() < 2 {
-                continue;
-            }
-            let (want, slot) = match l.axis() {
-                tatami_protocol::Axis::H => (s.w, p.rect.w),
-                tatami_protocol::Axis::V => (s.h, p.rect.h),
-            };
-            if want <= slot + MATCH_EPS || slot <= 0.0 {
-                continue;
-            }
-            let wb = f64::from(self.tree.node(leaf).weight);
-            let total: f64 = kids
-                .iter()
-                .map(|&k| f64::from(self.tree.node(k).weight))
-                .sum();
-            let others = total - wb;
-            let avail = slot * total / wb;
-            // Share the window needs, capped so siblings keep 10%.
-            let share = (want / avail).min(0.9);
-            let nw = share * others / (1.0 - share);
-            self.tree.set_weight(leaf, nw as f32);
-            self.wins[p.window].grown = true;
-            grew = true;
-        }
-        grew
     }
 
     /// Ask for `rect` unless the window is (or is already asked to be) there.
@@ -1816,7 +1767,19 @@ impl<P: Platform> Reactor<P> {
                     got = ?actual,
                     "window refuses its frame; keeping its size"
                 );
-                m.w.stubborn = Some(actual.size());
+                // Only the refused dimension is a minimum; the other one was
+                // accepted and must stay free to shrink (a column of two).
+                let refused = |got: f64, want: f64| {
+                    if (got - want).abs() > MATCH_EPS {
+                        got
+                    } else {
+                        0.0
+                    }
+                };
+                m.w.stubborn = Some(tatami_protocol::Size {
+                    w: refused(actual.w, tx.target.w),
+                    h: refused(actual.h, tx.target.h),
+                });
                 m.w.frame = actual;
                 m.w.expected = None;
                 if !regrow.contains(&m.ws) {

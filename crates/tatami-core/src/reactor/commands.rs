@@ -680,9 +680,11 @@ impl<P: Platform> Reactor<P> {
         // Lengths of the leaf and its ancestors: what `Tree::resize` asks for.
         let mut sizes: Vec<(NodeId, f64)> = Vec::new();
         let mut cur = Some(leaf);
+        let wins = &self.wins;
+        let min = |w: WindowId| wins.get(w).and_then(|m| m.w.stubborn);
         while let Some(n) = cur {
             if let Some(r) =
-                layout::node_rect(&self.tree, root, area, &self.gaps, focus, self.pad, n)
+                layout::node_rect(&self.tree, root, area, &self.gaps, focus, self.pad, &min, n)
             {
                 sizes.push((n, len(r)));
             }

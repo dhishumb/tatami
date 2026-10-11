@@ -614,6 +614,29 @@ impl<P: Platform> Reactor<P> {
         let n = self.tree.children(parent).len();
         let layout = self.tree.layout_of(parent);
         let changed = if n == 2 {
+            // Flipping a pair back along its row's axis merges it into the
+            // row; give the two the row's average share each, so a flip
+            // and a flip back is a round trip rather than two half-width
+            // columns.
+            if let Some(gp) = self.tree.parent(parent)
+                && self.tree.layout_of(gp).axis() == layout.axis().other()
+            {
+                let sibs = self.tree.children(gp);
+                let others: Vec<f32> = sibs
+                    .iter()
+                    .filter(|&&s| s != parent)
+                    .map(|&s| self.tree.node(s).weight)
+                    .collect();
+                let avg = if others.is_empty() {
+                    1.0
+                } else {
+                    others.iter().sum::<f32>() / others.len() as f32
+                };
+                self.tree.set_weight(parent, 2.0 * avg);
+                for &k in &self.tree.children(parent).to_vec() {
+                    self.tree.set_weight(k, 1.0);
+                }
+            }
             self.tree
                 .set_layout(parent, layout.with_axis(layout.axis().other()));
             let root = self.tree.root_of(parent);

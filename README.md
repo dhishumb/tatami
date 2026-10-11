@@ -45,6 +45,8 @@ Quit Rectangle, yabai or AeroSpace first; two managers fight.
 | `alt+h/j/k/l` | focus left / down / up / right (crosses monitors at the edge) |
 | `alt+n` / `alt+p` | next / previous tile on the workspace, wrapping around |
 | `alt+shift+h/j/k/l` | move the window (crosses monitors at the root edge) |
+| `alt+←/→/↑/↓` | resize the focused window by 50 px (width, height) |
+| `alt+shift+←/→/↑/↓` | move the window, same as `alt+shift+h/j/k/l` |
 | `alt+1`…`alt+9` | workspace N on the focused monitor |
 | `alt+shift+1`…`9` | move the window to workspace N and follow |
 | `alt+tab` | workspace back and forth |

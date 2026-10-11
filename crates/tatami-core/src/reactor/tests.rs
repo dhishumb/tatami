@@ -1461,3 +1461,30 @@ fn repeated_flip_with_min_width_windows_stays_on_screen_and_settles() {
         );
     }
 }
+
+#[test]
+fn flip_twice_is_a_round_trip_for_the_weights() {
+    let (mut t, h) = setup(
+        vec![mon("m1", 0.0)],
+        &[
+            win("com.a", "a", 0.0),
+            win("com.b", "b", 250.0),
+            win("com.c", "c", 500.0),
+            win("com.d", "d", 750.0),
+        ],
+    );
+    t.focus(h[1]);
+    t.ok("flip");
+    let (a, b, d) = (t.frame(h[0]).w, t.frame(h[1]).w, t.frame(h[3]).w);
+    assert!(
+        (b - a).abs() <= 1.0 && (a - d).abs() <= 1.0,
+        "the pair takes one ordinary column: {a} {b} {d}"
+    );
+    t.ok("flip");
+    let ws: Vec<f64> = h.iter().map(|&w| t.frame(w).w).collect();
+    assert!(
+        ws.iter().all(|&w| (w - ws[0]).abs() <= 1.0),
+        "equal columns again: {ws:?}"
+    );
+    assert!(ws[0] >= 249.0, "{ws:?}");
+}

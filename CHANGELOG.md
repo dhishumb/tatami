@@ -39,6 +39,9 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
   checkpoints: `tatami checkpoint save|restore|list|delete`.
 - **A menu bar item** with each monitor's workspaces and the service
   actions, and a status flash naming why a chord did nothing.
+- **`alt+o`, the desk overview:** the sheet lists every monitor, its
+  workspaces (visible one starred) and the apps on each, until `Esc`, a
+  chord, or `alt+o` again.
 - **Mouse:** drag a tile onto another monitor to move it there, over
   another tile to swap, anywhere else to snap back.
 - **Minimum sizes belong to the layout.** A window that refuses a width

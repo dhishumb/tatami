@@ -225,8 +225,23 @@ impl<P: Platform> Reactor<P> {
                 ok()
             }
             Action::Help => {
+                self.overview = false;
                 let ch = self.keys.pin();
                 self.set_overlay(ch);
+                ok()
+            }
+            Action::Overview => {
+                // Toggle: the pinned sheet shows the desk until a key
+                // resolves it; a second press closes it.
+                if self.overview {
+                    let now = self.now;
+                    let ch = self.keys.enter_mode(None, now);
+                    self.set_overlay(ch);
+                } else {
+                    self.overview = true;
+                    let ch = self.keys.pin();
+                    self.set_overlay(ch);
+                }
                 ok()
             }
             Action::Exec(cmd) => {

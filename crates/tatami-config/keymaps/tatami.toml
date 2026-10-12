@@ -34,6 +34,7 @@
 # minute — moving focus, moving windows, switching workspaces.
 
 "alt+/" = "help"
+"alt+o" = "overview"                             # the desk: every monitor, workspace and window
 # Next / previous tile in tree order, wrapping: the "just give me the other
 # window" keys when you don't want to think about direction.
 "alt+n" = "focus dfs-next"

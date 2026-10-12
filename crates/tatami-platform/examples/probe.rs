@@ -419,6 +419,8 @@ fn sample_sheet() -> OverlayContent {
                 prefix: p,
             })
             .collect(),
+        columns: None,
+        max_desc: None,
     }
 }
 

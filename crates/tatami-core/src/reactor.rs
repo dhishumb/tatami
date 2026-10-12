@@ -166,6 +166,8 @@ pub struct Reactor<P: Platform> {
     status_dirty: bool,
     /// A short message in the status item (a key that failed), and when it expires.
     flash: Option<(String, Instant)>,
+    /// The sheet is showing the desk overview instead of the keys.
+    overview: bool,
     /// A tiled window the user is moving by hand, and when to act on it.
     drag: Option<(WindowId, Instant)>,
     /// Windows whose app refused a frame write outright; floated at the end of the step.
@@ -341,6 +343,7 @@ impl<P: Platform> Reactor<P> {
             trusted: true,
             dirty: false,
             flash: None,
+            overview: false,
             drag: None,
             unmanageable: Vec::new(),
             next_app_scan: now + APP_SCAN_EVERY,
@@ -801,6 +804,70 @@ impl<P: Platform> Reactor<P> {
     }
 
     /// The which-key sheet for `level`.
+    /// The desk: every monitor (left to right), its workspaces (visible one
+    /// starred), and the windows on each, for the `overview` chord.
+    fn overview_content(&self) -> OverlayContent {
+        let mut mons: Vec<(MonitorId, &MonitorInfo)> =
+            self.monitors.iter().map(|(id, m)| (id, &m.info)).collect();
+        mons.sort_by(|a, b| a.1.frame.x.total_cmp(&b.1.frame.x));
+        let mut rows = Vec::new();
+        for (i, (id, info)) in mons.iter().enumerate() {
+            let here = if *id == self.focused_monitor {
+                "◆ "
+            } else {
+                ""
+            };
+            rows.push(OverlayRow {
+                key: format!("{}", i + 1),
+                desc: format!("{here}{}", info.name),
+                prefix: true,
+            });
+            let visible = self.model.visible_on(*id);
+            for ws in self.model.workspaces_on(*id) {
+                let Some(name) = self.model.name_of(ws) else {
+                    continue;
+                };
+                let mark = if visible == Some(ws) { "*" } else { " " };
+                let mut apps: Vec<String> = Vec::new();
+                for w in self.ws_windows(ws) {
+                    let m = &self.wins[w];
+                    let mut label = m.w.app_name.clone();
+                    if m.w.kind == WindowKind::Floating {
+                        label.push('~');
+                    }
+                    if let Some(last) = apps.last_mut()
+                        && last.trim_end_matches(|c: char| c.is_ascii_digit() || c == '×') == label
+                    {
+                        let n: usize = last
+                            .rsplit('×')
+                            .next()
+                            .and_then(|n| n.parse().ok())
+                            .unwrap_or(1);
+                        *last = format!("{label}×{}", n + 1);
+                    } else {
+                        apps.push(label);
+                    }
+                }
+                rows.push(OverlayRow {
+                    key: format!("  {name}{mark}"),
+                    desc: if apps.is_empty() {
+                        "(empty)".into()
+                    } else {
+                        apps.join(" · ")
+                    },
+                    prefix: false,
+                });
+            }
+        }
+        OverlayContent {
+            title: "desk".into(),
+            exit_hint: "Esc  close".into(),
+            rows,
+            columns: Some(1),
+            max_desc: Some(96),
+        }
+    }
+
     fn overlay_content(&self, level: &Level) -> OverlayContent {
         let leader = self.leader_words();
         let (title, exit_hint) = match level {
@@ -834,13 +901,19 @@ impl<P: Platform> Reactor<P> {
             title,
             exit_hint,
             rows,
+            columns: None,
+            max_desc: None,
         }
     }
 
     fn apply_overlay(&mut self, ch: OverlayChange) {
         let content = match ch {
             OverlayChange::Keep => return,
-            OverlayChange::Hide => None,
+            OverlayChange::Hide => {
+                self.overview = false;
+                None
+            }
+            OverlayChange::Show(_) if self.overview => Some(self.overview_content()),
             OverlayChange::Show(level) => Some(self.overlay_content(&level)),
         };
         // The sheet goes where the user is looking: the monitor under the

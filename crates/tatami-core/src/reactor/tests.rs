@@ -1724,3 +1724,46 @@ fn focusing_another_monitor_by_key_brings_the_pointer_along() {
         "pointer followed focus back to the first monitor: {p:?}"
     );
 }
+
+#[test]
+fn overview_shows_every_monitor_workspace_and_window_then_toggles_off() {
+    let (mut t, _h) = setup(
+        vec![mon("m1", 0.0), mon("m2", W)],
+        &[win("com.a", "a", 0.0), win("com.b", "b", W + 10.0)],
+    );
+    t.calls();
+    t.ok("overview");
+    let shown: Vec<Option<String>> = t
+        .calls()
+        .into_iter()
+        .filter_map(|c| match c {
+            FakeCall::Overlay(title) => Some(title),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(shown.last(), Some(&Some("desk".into())), "{shown:?}");
+    assert!(t.r.overview);
+    t.ok("overview");
+    assert!(!t.r.overview);
+    let shown: Vec<Option<String>> = t
+        .calls()
+        .into_iter()
+        .filter_map(|c| match c {
+            FakeCall::Overlay(title) => Some(title),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(shown.last(), Some(&None), "hidden again: {shown:?}");
+    // Content: both monitors, their visible workspace, the app names.
+    let c = t.r.overview_content();
+    let text: String = c
+        .rows
+        .iter()
+        .map(|r| format!("{}|{}\n", r.key, r.desc))
+        .collect();
+    assert!(
+        text.contains("Display m1") && text.contains("Display m2"),
+        "{text}"
+    );
+    assert!(text.contains("1*|a") && text.contains("1*|b"), "{text}");
+}

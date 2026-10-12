@@ -164,12 +164,16 @@ pub struct OverlayRow {
     pub prefix: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct OverlayContent {
     pub title: String,
     /// How to leave, shown dim on the right (`Esc  back`).
     pub exit_hint: String,
     pub rows: Vec<OverlayRow>,
+    /// At most this many columns (`None`: as many as fit).
+    pub columns: Option<usize>,
+    /// Description cut-off in characters (`None`: the sheet's default).
+    pub max_desc: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

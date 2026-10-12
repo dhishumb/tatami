@@ -15,6 +15,7 @@ brand new, read the README first. Everything here assumes the current
 - [The mouse](#the-mouse)
 - [The key sheet](#the-key-sheet)
 - [The menu bar item](#the-menu-bar-item)
+- [Seeing what is where](#seeing-what-is-where)
 - [Windows that won't tile](#windows-that-wont-tile)
 - [Layouts that survive a restart](#layouts-that-survive-a-restart)
 - [Configuration recipes](#configuration-recipes)
@@ -128,6 +129,7 @@ until `Esc` or `Enter`; the others leave after one.
 | `alt+shift+1` … `9` | move the tile to workspace N and follow it |
 | `alt+tab` | the previous workspace |
 | `alt+/` | pin the key sheet |
+| `alt+o` | the desk: every monitor, its workspaces (visible one starred) and their windows; again or `Esc` to close |
 | `alt+w` + | **workspaces**: `h`/`l` previous/next, `n`/`p` next/previous monitor, `m` move this workspace to the next monitor, `1-9` |
 | `alt+m` + (sticky) | **move**: `hjkl` move, `HJKL` move onto the monitor in that direction, `n` swap with the next tile, `1-9` move to workspace N |
 | `alt+r` + (sticky) | **resize**: `h`/`l` width, `j`/`k` height, `-`/`+` smart (along the container's axis), `=` balance |
@@ -237,6 +239,24 @@ balance, flatten, tiling on/off, save checkpoint, reload config, edit
 config, quit. `enable toggle` (`alt+s e`) stops managing without
 quitting: every window is un-parked and left alone until you turn it
 back on.
+
+## Seeing what is where
+
+`alt+o` opens the sheet with the whole desk: monitors left to right (the
+one you're on marked `◆`), each monitor's workspaces with the visible one
+starred, and the apps on each (`×2` for two windows of one app, `~` for a
+floating one). It stays until `Esc`, `alt+o` again, or any chord. The
+menu bar item's menu lists the same workspaces with window counts, and
+clicking one switches to it.
+
+From a shell:
+
+```sh
+tatami list-monitors              # index, uuid, name, frame, which is focused
+tatami list-workspaces --all      # per monitor: name, window count, visible, focused
+tatami list-windows --all         # every window: handle, app, title, workspace, frame
+tatami list-windows --all --json  # the same with monitor, kind, focus
+```
 
 ## Windows that won't tile
 

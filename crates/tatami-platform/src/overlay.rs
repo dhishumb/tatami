@@ -100,9 +100,10 @@ pub(crate) fn compose(
         .map(|r| width(&r.desc))
         .max()
         .unwrap_or(0)
-        .min(DESC_MAX);
+        .min(c.max_desc.unwrap_or(DESC_MAX));
     let cell = key_w + width(ARROW) + desc_w;
     let fit = (cols_chars + GAP) / (cell + GAP);
+    let fit = c.columns.map_or(fit, |n| n.min(fit).max(1));
     let cols = pack(c.rows.len(), fit, max_rows);
     let body_w = (cols.len() * (cell + GAP)).saturating_sub(GAP);
 
@@ -129,7 +130,7 @@ pub(crate) fn compose(
             out.pad(key_w - width(&row.key));
             out.push(Style::Key, &row.key);
             out.push(Style::Dim, ARROW);
-            let desc = truncate(&row.desc, DESC_MAX);
+            let desc = truncate(&row.desc, c.max_desc.unwrap_or(DESC_MAX));
             out.push(
                 if row.prefix {
                     Style::Prefix
@@ -339,6 +340,8 @@ mod tests {
                 row("tab", "workspace back and forth", false),
                 row("r", "+resize", true),
             ],
+            columns: None,
+            max_desc: None,
         };
         // Cell = 3 + 3 + 24 = 30; 63 chars fit two columns.
         let runs = compose(&c, 63, 10);
@@ -360,6 +363,8 @@ mod tests {
             title: "t".into(),
             exit_hint: String::new(),
             rows: vec![row("a", &"x".repeat(40), false)],
+            columns: None,
+            max_desc: None,
         };
         let text = plain(&compose(&c, 200, 10));
         let body = text.lines().nth(1).unwrap();

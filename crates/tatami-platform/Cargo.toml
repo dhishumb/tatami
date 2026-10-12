@@ -67,6 +67,6 @@ objc2-core-foundation = { workspace = true, features = [
     "CFMachPort",
     "block2",
 ] }
-objc2-core-graphics = { workspace = true, features = ["CGDirectDisplay", "CGEvent", "CGEventTypes", "CGEventSource", "CGRemoteOperation", "CGWindow"] }
+objc2-core-graphics = { workspace = true, features = ["CGDirectDisplay", "CGEvent", "CGEventTypes", "CGEventSource", "CGRemoteOperation", "CGWindow", "CGError"] }
 block2 = { workspace = true }
 dispatch2 = { workspace = true }

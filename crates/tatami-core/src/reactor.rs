@@ -1622,6 +1622,13 @@ impl<P: Platform> Reactor<P> {
         if self.note_focused(id) {
             self.relayout(ws);
         }
+        // Cmd-tab onto another monitor: bring the pointer, so the next chord
+        // acts where focus went. A click is already under the pointer.
+        let (m, frame) = (
+            self.ws_monitor(ws),
+            self.wins[id].w.expected.unwrap_or(self.wins[id].w.frame),
+        );
+        self.pointer_to(m, Some(frame));
     }
 
     // ---- workspaces ------------------------------------------------------------

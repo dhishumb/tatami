@@ -103,6 +103,18 @@ everything `← tatamid`; `tatami` (CLI) depends on `protocol` only.
 
 ## Commits and docs
 
+- Every user-visible change gets a `CHANGELOG.md` `[Unreleased]` entry in
+  the same commit, in the existing voice: what was wrong, what changed,
+  why.
+- After any binding change: `README.md` (keys table), `docs/USER_GUIDE.md`
+  (Keys table and the recipes), the preset's header comments and
+  `scripts/install.sh`'s next-steps text are hand-written and go stale.
+  Grep for the chord and check every claim against `tatami keymap`.
+  The which-key sheet and `tatami keymap` are generated and need nothing.
+- `docs/ARCHITECTURE.md` describes mechanisms, not history; update it
+  when a mechanism changes (focus rules, frame transactions, parking,
+  restore), not for every fix.
+
 - One focused commit per change after the loop passes. Subject:
   `scope: lowercase summary` (`core:`, `platform:`, `keys:`, `daemon:`,
   `cli:`, `docs:`). Body says why.

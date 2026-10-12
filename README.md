@@ -150,4 +150,11 @@ scripts/smoke.sh 30                                                  # isolated 
 cargo run -p tatami-platform --example probe -- windows              # raw platform probe
 ```
 
-See `CLAUDE.md` for the rules that are easy to get wrong.
+## Documentation
+
+- [docs/USER_GUIDE.md](docs/USER_GUIDE.md): day-to-day recipes, every key, configuration, scripting, diagnostics.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the code is organised and why.
+- [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md): why the installer signs the binaries and how to opt out.
+- [docs/RELEASING.md](docs/RELEASING.md): cutting a release.
+- [CHANGELOG.md](CHANGELOG.md): what changed, for the user.
+- `CLAUDE.md`: the rules that are easy to get wrong, for anyone (or any agent) changing the code.

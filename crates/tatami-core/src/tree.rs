@@ -13,8 +13,11 @@ use tatami_protocol::{Axis, Dir, Layout, Rect};
 
 use crate::ids::{NodeId, WindowId};
 
-/// Smallest share of its parent a resize may leave any child with.
-const MIN_SHARE: f64 = 0.1;
+/// A sibling's share can be pushed down to this on resize: a sliver, not
+/// a floor. The real floor is the window's own minimum size, which the
+/// layout enforces; capping shares at 10% here made every tile top out
+/// at about 70% of its row no matter how often you pressed resize.
+const MIN_SHARE: f64 = 0.02;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Leaf {
@@ -1267,8 +1270,9 @@ pub(crate) mod tests {
         let sizes = |_: NodeId| Some(900.0);
         assert!(t.resize(l[0], Axis::H, 10_000.0, &sizes));
         let w: Vec<f64> = l.iter().map(|&x| f64::from(t.node(x).weight)).collect();
+        let floor = MIN_SHARE * 3.0;
         assert!(
-            (w[1] - 0.3).abs() < 1e-5 && (w[2] - 0.3).abs() < 1e-5,
+            (w[1] - floor).abs() < 1e-5 && (w[2] - floor).abs() < 1e-5,
             "{w:?}"
         );
         assert!((w.iter().sum::<f64>() - 3.0).abs() < 1e-5);

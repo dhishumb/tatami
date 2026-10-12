@@ -129,7 +129,7 @@ until `Esc` or `Enter`; the others leave after one.
 | `alt+shift+1` … `9` | move the tile to workspace N and follow it |
 | `alt+tab` | the previous workspace |
 | `alt+/` | pin the key sheet |
-| `alt+o` | the desk: every monitor, its workspaces (visible one starred) and their windows; again or `Esc` to close |
+| `alt+o` | the desk: every monitor, its workspaces and their windows, a letter per window; press the letter to focus it, `Esc` or `alt+o` to close |
 | `alt+w` + | **workspaces**: `h`/`l` previous/next, `n`/`p` next/previous monitor, `m` move this workspace to the next monitor, `1-9` |
 | `alt+m` + (sticky) | **move**: `hjkl` move, `HJKL` move onto the monitor in that direction, `n` swap with the next tile, `1-9` move to workspace N |
 | `alt+r` + (sticky) | **resize**: `h`/`l` width, `j`/`k` height, `-`/`+` smart (along the container's axis), `=` balance |
@@ -244,10 +244,14 @@ back on.
 
 `alt+o` opens the sheet with the whole desk: monitors left to right (the
 one you're on marked `◆`), each monitor's workspaces with the visible one
-starred, and the apps on each (`×2` for two windows of one app, `~` for a
-floating one). It stays until `Esc`, `alt+o` again, or any chord. The
-menu bar item's menu lists the same workspaces with window counts, and
-clicking one switches to it.
+starred, and one line per window with a letter (`~` marks a floating
+one). **Press the letter and that window is focused**, wherever it is:
+its workspace is switched to, the pointer moves to its monitor. This is
+also the app switcher for windows Cmd-tab cannot reach (plyterm, after
+it re-execs itself, is absent from macOS's app list). `Esc` or `alt+o`
+closes; any other chord closes it and runs as usual. The menu bar item's
+menu lists the same workspaces with window counts, and clicking one
+switches to it.
 
 From a shell:
 

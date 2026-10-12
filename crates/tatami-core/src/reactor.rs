@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 use slotmap::SlotMap;
 use tatami_config::Config;
 use tatami_keymap::{
-    KeyChord, KeyInput, KeyState, Keymap, Level, OverlayChange, keyname_from_keycode,
+    KeyChord, KeyInput, KeyName, KeyState, Keymap, Level, OverlayChange, keyname_from_keycode,
 };
 use tatami_protocol::{Action, IpcEvent, Layout, Rect, Response, WindowHandle};
 use tatami_state::SavedState;
@@ -168,6 +168,10 @@ pub struct Reactor<P: Platform> {
     flash: Option<(String, Instant)>,
     /// The sheet is showing the desk overview instead of the keys.
     overview: bool,
+    /// Window per letter on the overview (`a`, `b`, …), in display order.
+    overview_targets: Vec<WindowId>,
+    /// A window picked on the overview, focused on the next `drain`.
+    overview_pick: Option<WindowId>,
     /// A tiled window the user is moving by hand, and when to act on it.
     drag: Option<(WindowId, Instant)>,
     /// Windows whose app refused a frame write outright; floated at the end of the step.
@@ -280,6 +284,23 @@ fn creator<'a>(
 }
 
 /// `r` re-centred inside `area` when its centre is outside, shrunk to fit.
+/// Letters for the overview's windows: `a`…`z` then `A`…`Z`.
+fn overview_letter(i: usize) -> Option<char> {
+    match i {
+        0..=25 => char::from_u32('a' as u32 + i as u32),
+        26..=51 => char::from_u32('A' as u32 + (i - 26) as u32),
+        _ => None,
+    }
+}
+
+fn overview_index(c: char) -> Option<usize> {
+    match c {
+        'a'..='z' => Some(c as usize - 'a' as usize),
+        'A'..='Z' => Some(26 + c as usize - 'A' as usize),
+        _ => None,
+    }
+}
+
 fn fit_into(r: Rect, area: &Rect) -> Rect {
     if area.contains(r.center()) {
         return r;
@@ -344,6 +365,8 @@ impl<P: Platform> Reactor<P> {
             dirty: false,
             flash: None,
             overview: false,
+            overview_targets: Vec::new(),
+            overview_pick: None,
             drag: None,
             unmanageable: Vec::new(),
             next_app_scan: now + APP_SCAN_EVERY,
@@ -470,6 +493,29 @@ impl<P: Platform> Reactor<P> {
     /// Runs only the KeyState; queues resulting actions. Called from inside
     /// the event tap: never touches the platform.
     pub fn on_key(&mut self, raw: RawKeyEvent, now: Instant) -> KeyDisposition {
+        if self.overview
+            && let RawKeyEvent::Down { keycode, mods, .. } = raw
+            && !mods.ctrl
+            && !mods.cmd
+        {
+            // The overview is a switcher: a letter focuses that window;
+            // Esc closes; anything else closes and goes on as a normal key.
+            let picked = match keyname_from_keycode(keycode) {
+                Some(KeyName::Char(c)) => {
+                    overview_index(c).and_then(|i| self.overview_targets.get(i).copied())
+                }
+                _ => None,
+            };
+            let ch = self.keys.enter_mode(None, now);
+            self.set_overlay(ch);
+            if let Some(id) = picked {
+                self.overview_pick = Some(id);
+                return KeyDisposition::Swallow;
+            }
+            if keyname_from_keycode(keycode) == Some(KeyName::Escape) {
+                return KeyDisposition::Swallow;
+            }
+        }
         let input = match raw {
             RawKeyEvent::Down {
                 keycode,
@@ -507,6 +553,11 @@ impl<P: Platform> Reactor<P> {
         self.now = now;
         if !self.key_queue.is_empty() {
             self.follow_mouse();
+        }
+        if let Some(id) = self.overview_pick.take()
+            && self.wins.contains_key(id)
+        {
+            self.focus_window(id);
         }
         let mut q = std::mem::take(&mut self.key_queue);
         for a in &q {
@@ -805,12 +856,14 @@ impl<P: Platform> Reactor<P> {
 
     /// The which-key sheet for `level`.
     /// The desk: every monitor (left to right), its workspaces (visible one
-    /// starred), and the windows on each, for the `overview` chord.
-    fn overview_content(&self) -> OverlayContent {
+    /// starred), and one lettered row per window, for the `overview` chord.
+    /// Returns the rows and the window each letter stands for.
+    fn overview_rows(&self) -> (Vec<OverlayRow>, Vec<WindowId>) {
         let mut mons: Vec<(MonitorId, &MonitorInfo)> =
             self.monitors.iter().map(|(id, m)| (id, &m.info)).collect();
         mons.sort_by(|a, b| a.1.frame.x.total_cmp(&b.1.frame.x));
         let mut rows = Vec::new();
+        let mut targets = Vec::new();
         for (i, (id, info)) in mons.iter().enumerate() {
             let here = if *id == self.focused_monitor {
                 "◆ "
@@ -818,8 +871,8 @@ impl<P: Platform> Reactor<P> {
                 ""
             };
             rows.push(OverlayRow {
-                key: format!("{}", i + 1),
-                desc: format!("{here}{}", info.name),
+                key: String::new(),
+                desc: format!("{here}{}  {}", i + 1, info.name),
                 prefix: true,
             });
             let visible = self.model.visible_on(*id);
@@ -827,44 +880,47 @@ impl<P: Platform> Reactor<P> {
                 let Some(name) = self.model.name_of(ws) else {
                     continue;
                 };
-                let mark = if visible == Some(ws) { "*" } else { " " };
-                let mut apps: Vec<String> = Vec::new();
+                let mark = if visible == Some(ws) { "*" } else { "" };
+                rows.push(OverlayRow {
+                    key: String::new(),
+                    desc: format!("   workspace {name}{mark}"),
+                    prefix: true,
+                });
                 for w in self.ws_windows(ws) {
                     let m = &self.wins[w];
-                    let mut label = m.w.app_name.clone();
-                    if m.w.kind == WindowKind::Floating {
-                        label.push('~');
-                    }
-                    if let Some(last) = apps.last_mut()
-                        && last.trim_end_matches(|c: char| c.is_ascii_digit() || c == '×') == label
-                    {
-                        let n: usize = last
-                            .rsplit('×')
-                            .next()
-                            .and_then(|n| n.parse().ok())
-                            .unwrap_or(1);
-                        *last = format!("{label}×{}", n + 1);
+                    let key = overview_letter(targets.len())
+                        .map(String::from)
+                        .unwrap_or_default();
+                    let float = if m.w.kind == WindowKind::Floating {
+                        "~ "
                     } else {
-                        apps.push(label);
-                    }
+                        ""
+                    };
+                    let desc = if m.w.title.is_empty() || m.w.title == m.w.app_name {
+                        format!("{float}{}", m.w.app_name)
+                    } else {
+                        format!("{float}{} — {}", m.w.app_name, m.w.title)
+                    };
+                    rows.push(OverlayRow {
+                        key,
+                        desc,
+                        prefix: false,
+                    });
+                    targets.push(w);
                 }
-                rows.push(OverlayRow {
-                    key: format!("  {name}{mark}"),
-                    desc: if apps.is_empty() {
-                        "(empty)".into()
-                    } else {
-                        apps.join(" · ")
-                    },
-                    prefix: false,
-                });
             }
         }
+        (rows, targets)
+    }
+
+    fn overview_content(&self) -> OverlayContent {
+        let (rows, _) = self.overview_rows();
         OverlayContent {
-            title: "desk".into(),
+            title: "desk  (letter: focus that window)".into(),
             exit_hint: "Esc  close".into(),
             rows,
             columns: Some(1),
-            max_desc: Some(96),
+            max_desc: Some(80),
         }
     }
 

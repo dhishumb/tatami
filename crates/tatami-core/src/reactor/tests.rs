@@ -1741,7 +1741,10 @@ fn overview_shows_every_monitor_workspace_and_window_then_toggles_off() {
             _ => None,
         })
         .collect();
-    assert_eq!(shown.last(), Some(&Some("desk".into())), "{shown:?}");
+    assert!(
+        matches!(shown.last(), Some(Some(t)) if t.starts_with("desk")),
+        "{shown:?}"
+    );
     assert!(t.r.overview);
     t.ok("overview");
     assert!(!t.r.overview);
@@ -1754,7 +1757,7 @@ fn overview_shows_every_monitor_workspace_and_window_then_toggles_off() {
         })
         .collect();
     assert_eq!(shown.last(), Some(&None), "hidden again: {shown:?}");
-    // Content: both monitors, their visible workspace, the app names.
+    // Content: both monitors, their visible workspace, a letter per window.
     let c = t.r.overview_content();
     let text: String = c
         .rows
@@ -1765,5 +1768,42 @@ fn overview_shows_every_monitor_workspace_and_window_then_toggles_off() {
         text.contains("Display m1") && text.contains("Display m2"),
         "{text}"
     );
-    assert!(text.contains("1*|a") && text.contains("1*|b"), "{text}");
+    assert!(text.contains("workspace 1*"), "{text}");
+    assert!(text.contains("a|a") && text.contains("b|b"), "{text}");
+}
+
+#[test]
+fn a_letter_on_the_overview_focuses_that_window_anywhere() {
+    let (mut t, h) = setup(
+        vec![mon("m1", 0.0), mon("m2", W)],
+        &[win("com.a", "a", 0.0), win("com.b", "b", W + 10.0)],
+    );
+    t.fake()
+        .set_mouse(tatami_protocol::Point { x: 100.0, y: 100.0 });
+    t.focus(h[0]);
+    t.ok("overview");
+    // `b` is the second window: keycode 11.
+    let disp = t.key(RawKeyEvent::Down {
+        keycode: 11,
+        mods: Mods::default(),
+        repeat: false,
+    });
+    assert_eq!(disp, KeyDisposition::Swallow);
+    t.drain();
+    assert!(!t.r.overview, "closed after the pick");
+    assert_eq!(t.r.focused, Some(t.r.by_handle[&h[1]]));
+    let p = t.fake().mouse_location().unwrap();
+    assert!(p.x >= W, "pointer followed to the second monitor: {p:?}");
+    // Esc closes without picking.
+    t.ok("overview");
+    assert_eq!(
+        t.key(RawKeyEvent::Down {
+            keycode: 53,
+            mods: Mods::default(),
+            repeat: false
+        }),
+        KeyDisposition::Swallow
+    );
+    t.drain();
+    assert!(!t.r.overview);
 }

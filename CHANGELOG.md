@@ -39,9 +39,11 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
   checkpoints: `tatami checkpoint save|restore|list|delete`.
 - **A menu bar item** with each monitor's workspaces and the service
   actions, and a status flash naming why a chord did nothing.
-- **`alt+o`, the desk overview:** the sheet lists every monitor, its
-  workspaces (visible one starred) and the apps on each, until `Esc`, a
-  chord, or `alt+o` again.
+- **`alt+o`, the desk overview and switcher:** the sheet lists every
+  monitor, its workspaces (visible one starred) and a lettered line per
+  window; press the letter to focus that window wherever it is. Cmd-tab
+  cannot reach an app macOS has lost track of (plyterm after a hot swap);
+  this can. `Esc`, a chord, or `alt+o` again closes it.
 - **Mouse:** drag a tile onto another monitor to move it there, over
   another tile to swap, anywhere else to snap back.
 - **Minimum sizes belong to the layout.** A window that refuses a width

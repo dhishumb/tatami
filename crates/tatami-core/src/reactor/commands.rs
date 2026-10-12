@@ -239,6 +239,7 @@ impl<P: Platform> Reactor<P> {
                     self.set_overlay(ch);
                 } else {
                     self.overview = true;
+                    self.overview_targets = self.overview_rows().1;
                     let ch = self.keys.pin();
                     self.set_overlay(ch);
                 }

@@ -904,12 +904,8 @@ impl<P: Platform> Reactor<P> {
                     None => KeyDisposition::Pass,
                 }
             }
-            (false, _) => {
-                close(self);
-                KeyDisposition::Pass
-            }
-            // Search mode.
-            (true, Some(KeyName::Enter)) => {
+            // Either mode: ↑/↓ move the highlight, Enter focuses it.
+            (_, Some(KeyName::Enter)) => {
                 let picked = self.overview_targets.get(self.overview_sel).copied();
                 close(self);
                 self.overview_pick = picked;
@@ -922,14 +918,14 @@ impl<P: Platform> Reactor<P> {
                 refilter(self);
                 KeyDisposition::Swallow
             }
-            (true, Some(KeyName::Down)) | (true, Some(KeyName::Tab)) if !mods.shift => {
+            (_, Some(KeyName::Down)) | (_, Some(KeyName::Tab)) if !mods.shift => {
                 if !self.overview_targets.is_empty() {
                     self.overview_sel = (self.overview_sel + 1) % self.overview_targets.len();
                 }
                 redraw(self);
                 KeyDisposition::Swallow
             }
-            (true, Some(KeyName::Up)) | (true, Some(KeyName::Tab)) => {
+            (_, Some(KeyName::Up)) | (_, Some(KeyName::Tab)) => {
                 let n = self.overview_targets.len();
                 if n > 0 {
                     self.overview_sel = (self.overview_sel + n - 1) % n;
@@ -957,6 +953,10 @@ impl<P: Platform> Reactor<P> {
                 KeyDisposition::Swallow
             }
             (true, _) => KeyDisposition::Swallow,
+            (false, _) => {
+                close(self);
+                KeyDisposition::Pass
+            }
         }
     }
 
@@ -1025,12 +1025,18 @@ impl<P: Platform> Reactor<P> {
                 {
                     continue;
                 }
+                let selected = targets.len() == self.overview_sel;
                 let key = match &self.overview_query {
                     None => overview_letter(targets.len())
                         .map(String::from)
                         .unwrap_or_default(),
-                    Some(_) if targets.len() == self.overview_sel => "▶".to_string(),
+                    Some(_) if selected => "▶".to_string(),
                     Some(_) => String::new(),
+                };
+                let sel = if selected && self.overview_query.is_none() {
+                    "▶ "
+                } else {
+                    ""
                 };
                 let float = if m.w.kind == WindowKind::Floating {
                     "~ "
@@ -1038,9 +1044,9 @@ impl<P: Platform> Reactor<P> {
                     ""
                 };
                 let desc = if m.w.title.is_empty() || m.w.title == m.w.app_name {
-                    format!("{float}{}", m.w.app_name)
+                    format!("{sel}{float}{}", m.w.app_name)
                 } else {
-                    format!("{float}{} — {}", m.w.app_name, m.w.title)
+                    format!("{sel}{float}{} — {}", m.w.app_name, m.w.title)
                 };
                 ws_rows.push(OverlayRow {
                     key,
@@ -1098,7 +1104,9 @@ impl<P: Platform> Reactor<P> {
     fn overview_content(&self) -> OverlayContent {
         let (rows, targets) = self.overview_rows();
         let title = match &self.overview_query {
-            None => "desk  ·  1-9 ←→ monitor  ·  letter: focus  ·  / search".to_string(),
+            None => {
+                "desk  ·  1-9 ←→ monitor  ·  ↑↓ Enter or letter: focus  ·  / search".to_string()
+            }
             Some(q) => format!(
                 "search: {q}  ({} match{})",
                 targets.len(),
@@ -1220,6 +1228,20 @@ impl<P: Platform> Reactor<P> {
 
     fn visible_ws(&self, m: MonitorId) -> Option<WorkspaceId> {
         self.model.visible_on(m)
+    }
+
+    /// The lowest configured workspace name on `m` that has no windows,
+    /// creating it when it does not exist yet; `None` when all are taken.
+    fn own_workspace(&mut self, m: MonitorId) -> Option<WorkspaceId> {
+        let names = self.cfg.workspaces.names.clone();
+        for name in &names {
+            match self.model.find(m, name) {
+                Some(ws) if self.ws_windows(ws).is_empty() => return Some(ws),
+                Some(_) => continue,
+                None => return self.create_ws(m, name),
+            }
+        }
+        None
     }
 
     fn create_ws(&mut self, m: MonitorId, name: &str) -> Option<WorkspaceId> {
@@ -1636,10 +1658,13 @@ impl<P: Platform> Reactor<P> {
             return;
         };
         let m = self.monitor_for_rect(&info.frame);
+        let own = kind == WindowKind::Tiled
+            && rule_ws.is_none()
+            && self.cfg.workspaces.new_window == tatami_config::NewWindow::OwnWorkspace;
         let ws = match rule_ws.and_then(|n| self.create_ws(m, &n)) {
             Some(ws) => ws,
-            None => match self
-                .visible_ws(m)
+            None => match (own.then(|| self.own_workspace(m)).flatten())
+                .or_else(|| self.visible_ws(m))
                 .or_else(|| self.visible_ws(self.focused_monitor))
             {
                 Some(ws) => ws,
@@ -1663,6 +1688,12 @@ impl<P: Platform> Reactor<P> {
             return;
         }
         self.attach(id, ws, fresh);
+        // A fresh window on its own workspace: show it, like the app
+        // intended when it opened the window.
+        if fresh && own && self.enabled && !self.model.is_visible(ws) {
+            let sw = self.model.switch(m, ws);
+            self.apply_switch(sw, false);
+        }
         // A floating window parked by a daemon that was killed is still off
         // in a corner; tiled strays come back through the layout, floating
         // ones need pulling in by hand.

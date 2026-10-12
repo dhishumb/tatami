@@ -32,6 +32,14 @@ fn cfg() -> Config {
     let mut c = Config::default();
     c.gaps.inner = 0;
     c.gaps.outer = Outer::all(0);
+    // Most tests exercise tiling within one workspace.
+    c.workspaces.new_window = tatami_config::NewWindow::Tile;
+    c
+}
+
+fn cfg_own() -> Config {
+    let mut c = cfg();
+    c.workspaces.new_window = tatami_config::NewWindow::OwnWorkspace;
     c
 }
 
@@ -1918,4 +1926,69 @@ fn overview_monitor_setting_overrides_the_main_display() {
         })
         .next_back();
     assert_eq!(last.as_deref(), Some("m1"));
+}
+
+#[test]
+fn by_default_each_new_window_gets_its_own_workspace_and_is_shown() {
+    let (f, h) = fake_with(vec![mon("m1", 0.0)], &[win("com.a", "a", 0.0)]);
+    let mut t = start(f, cfg_own(), None);
+    assert_eq!(t.frame(h[0]), r(0.0, 0.0, W, H), "alone on workspace 1");
+    let pid = t.fake().add_app("com.code", "Code");
+    let b = t
+        .fake()
+        .add_window(pid, "lib.rs", r(10.0, 10.0, 300.0, 300.0));
+    t.settle();
+    let m1 = t.mon_id("m1");
+    let vis = t.r.model.visible_on(m1).unwrap();
+    assert_eq!(
+        t.r.model.name_of(vis),
+        Some("2"),
+        "the new window opened workspace 2 and we are on it"
+    );
+    assert_eq!(t.r.wins[t.r.by_handle[&b]].ws, vis);
+    assert_eq!(t.frame(b), r(0.0, 0.0, W, H), "it fills the screen");
+    // A third window takes 3; moving it onto 2 tiles the two there.
+    let c = t
+        .fake()
+        .add_window(pid, "main.rs", r(10.0, 10.0, 300.0, 300.0));
+    t.settle();
+    assert_eq!(
+        t.r.model.name_of(t.r.model.visible_on(m1).unwrap()),
+        Some("3")
+    );
+    t.ok("move-node-to-workspace 2 --focus-follows-window");
+    assert_eq!(
+        t.r.model.name_of(t.r.model.visible_on(m1).unwrap()),
+        Some("2")
+    );
+    assert_eq!(t.frame(b).w + t.frame(c).w, W, "b and c share workspace 2");
+    // Workspace 3 is empty and hidden: gone, so the next window reuses it.
+    assert!(t.r.model.find(m1, "3").is_none());
+    let d = t.fake().add_window(pid, "x.rs", r(0.0, 0.0, 100.0, 100.0));
+    t.settle();
+    assert_eq!(t.r.model.name_of(t.r.wins[t.r.by_handle[&d]].ws), Some("3"));
+}
+
+#[test]
+fn own_workspace_policy_falls_back_to_tiling_when_all_names_are_taken() {
+    let (f, _h) = fake_with(vec![mon("m1", 0.0)], &[]);
+    let mut c = cfg_own();
+    c.workspaces.names = vec!["1".into(), "2".into()];
+    let mut t = start(f, c, None);
+    let pid = t.fake().add_app("com.code", "Code");
+    let a = t.fake().add_window(pid, "a", r(0.0, 0.0, 100.0, 100.0));
+    t.settle();
+    let b = t.fake().add_window(pid, "b", r(0.0, 0.0, 100.0, 100.0));
+    t.settle();
+    let cw = t.fake().add_window(pid, "c", r(0.0, 0.0, 100.0, 100.0));
+    t.settle();
+    let m1 = t.mon_id("m1");
+    assert_eq!(t.r.model.name_of(t.r.wins[t.r.by_handle[&a]].ws), Some("1"));
+    assert_eq!(t.r.model.name_of(t.r.wins[t.r.by_handle[&b]].ws), Some("2"));
+    assert_eq!(
+        t.r.wins[t.r.by_handle[&cw]].ws,
+        t.r.model.visible_on(m1).unwrap(),
+        "c tiles into the visible one"
+    );
+    assert_eq!(t.frame(b).w + t.frame(cw).w, W);
 }

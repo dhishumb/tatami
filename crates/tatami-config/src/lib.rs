@@ -187,6 +187,18 @@ impl Default for LayoutConfig {
     }
 }
 
+/// Where a new window goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NewWindow {
+    /// Its own (lowest empty) workspace on its monitor, alone, so it fills
+    /// the screen; tiling is a deliberate move into another workspace.
+    #[default]
+    OwnWorkspace,
+    /// Beside the focused tile in the visible workspace, i3-style.
+    Tile,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum WorkspaceModel {
@@ -204,6 +216,8 @@ pub struct Workspaces {
     pub names: Vec<String>,
     /// Never garbage-collected when empty.
     pub persistent: Vec<String>,
+    /// `own-workspace` (default) or `tile`.
+    pub new_window: NewWindow,
     /// Shared model only, AeroSpace's syntax: `name = pattern` or
     /// `name = [patterns]`, a pattern being `main`, `secondary`, a 1-based
     /// index or a monitor-name regex. The first monitor present wins.
@@ -220,6 +234,7 @@ impl Default for Workspaces {
             model: WorkspaceModel::default(),
             names: (1..=9).map(|n| n.to_string()).collect(),
             persistent: Vec::new(),
+            new_window: NewWindow::default(),
             monitor_force_assignment: BTreeMap::new(),
         }
     }

@@ -1876,3 +1876,46 @@ fn overview_window_rows_carry_a_focus_command_for_clicks() {
     t.event(PlatformEvent::Command(cmd.clone()));
     assert_eq!(t.r.focused, Some(t.r.by_handle[&h[1]]));
 }
+
+#[test]
+fn overview_monitor_setting_overrides_the_main_display() {
+    let (f, _h) = fake_with(
+        vec![mon("m1", 0.0), mon("m2", W)],
+        &[win("com.a", "a", 0.0), win("com.b", "b", W + 10.0)],
+    );
+    let mut c = cfg();
+    c.general.overview_monitor = "m2".into(); // part of "Display m2"
+    let mut t = start(f, c, None);
+    t.fake()
+        .set_mouse(tatami_protocol::Point { x: 100.0, y: 100.0 });
+    t.ok("overview");
+    let shown_on = t
+        .calls()
+        .into_iter()
+        .filter_map(|c| match c {
+            FakeCall::OverlayOn(uuid) => Some(uuid),
+            _ => None,
+        })
+        .next_back();
+    assert_eq!(shown_on.as_deref(), Some("m2"));
+    t.ok("overview");
+    // A number works too, and `pointer` follows the mouse.
+    t.r.reload_config(
+        {
+            let mut c = cfg();
+            c.general.overview_monitor = "1".into();
+            c
+        },
+        t.now,
+    );
+    t.ok("overview");
+    let last = t
+        .calls()
+        .into_iter()
+        .filter_map(|c| match c {
+            FakeCall::OverlayOn(u) => Some(u),
+            _ => None,
+        })
+        .next_back();
+    assert_eq!(last.as_deref(), Some("m1"));
+}

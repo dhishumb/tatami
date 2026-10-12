@@ -47,7 +47,10 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
   tabs can be clicked too. Cmd-tab cannot reach an app macOS has lost
   track of (plyterm after a hot swap); this can. `Esc`, a chord, or
   `alt+o` again closes it. `focus --window-id <n>` and `overview <n>`
-  are the commands behind the clicks.
+  are the commands behind the clicks. It opens on the main display by
+  default; `overview_monitor` under `[general]` picks another (`pointer`,
+  `focused`, a number, part of a name) for desks where the laptop lid
+  makes the wrong display "main".
 - **Mouse:** drag a tile onto another monitor to move it there, over
   another tile to swap, anywhere else to snap back.
 - **Minimum sizes belong to the layout.** A window that refuses a width

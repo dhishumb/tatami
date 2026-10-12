@@ -439,7 +439,11 @@ impl<P: Platform> Reactor<P> {
         monitor_in_dir(&here, &others, dir)
     }
 
-    fn resolve_monitor(&self, t: &MonitorTarget, wrap: bool) -> Result<MonitorId, String> {
+    pub(super) fn resolve_monitor(
+        &self,
+        t: &MonitorTarget,
+        wrap: bool,
+    ) -> Result<MonitorId, String> {
         let found = match t {
             MonitorTarget::Dir(d) => self.monitor_in(*d),
             MonitorTarget::Next => monitor_next_prev(&self.order, self.focused_monitor, true, wrap),

@@ -53,6 +53,10 @@ pub struct General {
     /// When a key moves focus to another monitor, move the pointer there
     /// too, so the next chord acts on that monitor.
     pub mouse_follows_focus: bool,
+    /// Where the `alt+o` overview opens: `main` (the primary display),
+    /// `pointer`, `focused`, a monitor number (left to right, from 1) or
+    /// part of a monitor's name.
+    pub overview_monitor: String,
 }
 
 /// Long enough that a practised `alt+w 3` never flashes the sheet, short
@@ -66,6 +70,7 @@ impl Default for General {
             which_key_delay_ms: WHICH_KEY_DELAY_MS,
             leader: Mods::ALT,
             mouse_follows_focus: true,
+            overview_monitor: "main".into(),
         }
     }
 }

@@ -24,7 +24,7 @@ use tatami_config::Config;
 use tatami_keymap::{
     KeyChord, KeyInput, KeyName, KeyState, Keymap, Level, OverlayChange, keyname_from_keycode,
 };
-use tatami_protocol::{Action, IpcEvent, Layout, Rect, Response, WindowHandle};
+use tatami_protocol::{Action, IpcEvent, Layout, MonitorTarget, Rect, Response, WindowHandle};
 use tatami_state::SavedState;
 
 use crate::ids::{MonitorId, NodeId, WindowId, WorkspaceId};
@@ -1063,6 +1063,26 @@ impl<P: Platform> Reactor<P> {
         (rows, targets)
     }
 
+    /// The monitor `general.overview_monitor` names: `main`, `pointer`,
+    /// `focused`, a number or part of a name. Unknown → the main display.
+    fn overview_monitor(&self) -> Option<MonitorId> {
+        let main = || {
+            self.monitors
+                .iter()
+                .find(|(_, m)| m.info.is_main)
+                .map(|(i, _)| i)
+        };
+        match self.cfg.general.overview_monitor.trim() {
+            "" | "main" => main(),
+            "pointer" => self.monitor_under_mouse().or_else(main),
+            "focused" => Some(self.focused_monitor),
+            pat => self
+                .resolve_monitor(&MonitorTarget::Pattern(pat.to_string()), false)
+                .ok()
+                .or_else(main),
+        }
+    }
+
     /// Monitor ids ordered by their x position, the order of the tabs and
     /// of `focus-monitor next`.
     fn monitors_left_to_right(&self) -> Vec<MonitorId> {
@@ -1152,14 +1172,11 @@ impl<P: Platform> Reactor<P> {
         // pointer, else the focused window's monitor.
         let fallback;
         let under_mouse = self.monitor_under_mouse();
-        // The overview is the desk's map: it always opens on the main
-        // monitor, wherever the pointer is.
+        // The overview is the desk's map: it opens where the config says
+        // (`general.overview_monitor`, default the main display), wherever
+        // the pointer is.
         let target = if self.overview {
-            self.monitors
-                .iter()
-                .find(|(_, m)| m.info.is_main)
-                .map(|(i, _)| i)
-                .or(under_mouse)
+            self.overview_monitor().or(under_mouse)
         } else {
             under_mouse
         };

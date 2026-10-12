@@ -242,7 +242,9 @@ back on.
 
 ## Seeing what is where
 
-`alt+o` opens the desk on the main monitor, keyboard first. At the top,
+`alt+o` opens the desk on the main display (`overview_monitor` under
+`[general]` changes that: `pointer`, `focused`, a monitor number counted
+left to right, or part of a monitor's name), keyboard first. At the top,
 one tab per monitor, left to right, with its window count (the monitor
 you're on marked `◆`, the open tab marked `▸`); it opens on your current
 monitor's tab. Below, that monitor's workspaces (visible one starred) and
@@ -368,13 +370,16 @@ edit it, set `preset = "mine"`. A file can start from another with
 (`focus left`, `move-node-to-workspace 3`, `layout accordion`), chained
 with `;` or as a list; a list ending in `"normal"` leaves the mode.
 
-Use Ctrl+Alt as the leader instead of Alt, and keep the pointer where it
-is when keys cross monitors:
+Use Ctrl+Alt as the leader instead of Alt, keep the pointer where it is
+when keys cross monitors, and open the overview on the big external
+display rather than the laptop's (which macOS calls the main one while
+the lid is open):
 
 ```toml
 [general]
 leader = "ctrl+alt"
 mouse_follows_focus = false
+overview_monitor = "CQ32G4"     # or "pointer", "focused", or a number (left to right)
 ```
 
 Workspace names of your own and ones that are never forgotten:

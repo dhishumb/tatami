@@ -6,7 +6,7 @@ use tatami_config::{Config, Outer, Rule};
 use tatami_protocol::{IpcEvent, Layout, Rect, Response, Size, WindowHandle};
 use tatami_state::{SavedMonitor, SavedNode, SavedState, SavedWindow, SavedWorkspace};
 
-use super::{Outcome, Reactor};
+use super::{Outcome, OverviewItem, Reactor};
 use crate::fake::{Behaviour, FakeCall, FakePlatform};
 use crate::parking::is_parked;
 use crate::platform::{
@@ -1734,7 +1734,7 @@ fn focusing_another_monitor_by_key_brings_the_pointer_along() {
 }
 
 #[test]
-fn overview_has_a_tab_per_monitor_and_lists_the_active_tabs_windows() {
+fn overview_is_an_outline_with_the_current_monitor_expanded() {
     let (mut t, h) = setup(
         vec![mon("m1", 0.0), mon("m2", W)],
         &[win("com.a", "a", 0.0), win("com.b", "b", W + 10.0)],
@@ -1743,28 +1743,38 @@ fn overview_has_a_tab_per_monitor_and_lists_the_active_tabs_windows() {
         x: W + 100.0,
         y: 100.0,
     });
-    t.focus(h[1]); // focus on m2: the overview opens on m2's tab
+    t.focus(h[1]); // focus on m2: the overview opens with m2 expanded
     t.calls();
     t.ok("overview");
     assert!(t.r.overview);
-    let (rows, targets) = t.r.overview_rows();
+    let (m1, m2) = (t.mon_id("m1"), t.mon_id("m2"));
+    let (b, a) = (t.r.by_handle[&h[1]], t.r.by_handle[&h[0]]);
+    let (rows, items) = t.r.overview_rows();
     let text: String = rows
         .iter()
         .map(|r| format!("{}|{}\n", r.key, r.desc))
         .collect();
     assert!(
-        text.contains("|1  Display m1  (1)") && text.contains("▸|2  Display m2  (1) ◆"),
+        text.contains("▸|1  Display m1  (1)\n") && text.contains("▾|2  Display m2  (1) ◆"),
         "{text}"
     );
     assert_eq!(
-        targets,
-        vec![t.r.by_handle[&h[1]]],
-        "only the active tab's windows: {text}"
+        items,
+        vec![
+            OverviewItem::Monitor(m1),
+            OverviewItem::Monitor(m2),
+            OverviewItem::Window(b)
+        ],
+        "m1 collapsed, m2 expanded: {text}"
+    );
+    assert_eq!(
+        t.r.overview_sel, 2,
+        "highlight starts on the focused window"
     );
     assert_eq!(
         rows[0].command,
         vec!["overview".to_string(), "1".into()],
-        "tab rows click to a tab"
+        "a header's click expands it"
     );
     // The sheet went to the main monitor (m1), not the pointer's (m2).
     let shown_on = t
@@ -1776,21 +1786,104 @@ fn overview_has_a_tab_per_monitor_and_lists_the_active_tabs_windows() {
         })
         .next_back();
     assert_eq!(shown_on.as_deref(), Some("m1"));
-    // `1` switches to the first tab; a click on a tab row does the same.
+    // `1` expands the first monitor and highlights its header; a click on
+    // a header does the same and keeps what is already open.
     let down = |code: u16| RawKeyEvent::Down {
         keycode: code,
         mods: Mods::default(),
         repeat: false,
     };
     assert_eq!(t.key(down(18)), KeyDisposition::Swallow);
-    assert_eq!(t.r.overview_rows().1, vec![t.r.by_handle[&h[0]]]);
+    assert_eq!(
+        t.r.overview_rows().1,
+        vec![
+            OverviewItem::Monitor(m1),
+            OverviewItem::Window(a),
+            OverviewItem::Monitor(m2),
+            OverviewItem::Window(b)
+        ]
+    );
+    assert_eq!(t.r.overview_sel, 0);
     t.event(PlatformEvent::Command(vec!["overview".into(), "2".into()]));
-    assert_eq!(t.r.overview_rows().1, vec![t.r.by_handle[&h[1]]]);
-    // → wraps around; a second `overview` closes.
-    assert_eq!(t.key(down(124)), KeyDisposition::Swallow);
-    assert_eq!(t.r.overview_tab, 0);
+    assert_eq!(t.r.overview_rows().1.len(), 4, "m1 stays open");
+    assert_eq!(t.r.overview_sel, 2, "the clicked header is highlighted");
+    // A second `overview` closes.
     t.ok("overview");
     assert!(!t.r.overview);
+}
+
+#[test]
+fn overview_arrows_walk_the_outline_and_expand_or_collapse_monitors() {
+    let (mut t, h) = setup(
+        vec![mon("m1", 0.0), mon("m2", W)],
+        &[win("com.a", "a", 0.0), win("com.b", "b", W + 10.0)],
+    );
+    t.fake()
+        .set_mouse(tatami_protocol::Point { x: 100.0, y: 100.0 });
+    t.focus(h[0]);
+    t.ok("overview");
+    let (m1, m2) = (t.mon_id("m1"), t.mon_id("m2"));
+    let (a, b) = (t.r.by_handle[&h[0]], t.r.by_handle[&h[1]]);
+    let down = |code: u16| RawKeyEvent::Down {
+        keycode: code,
+        mods: Mods::default(),
+        repeat: false,
+    };
+    assert_eq!(
+        t.r.overview_items[t.r.overview_sel],
+        OverviewItem::Window(a)
+    );
+    // → on a window changes nothing.
+    assert_eq!(t.key(down(124)), KeyDisposition::Swallow);
+    assert_eq!(t.r.overview_items.len(), 3);
+    // ← from a window collapses its monitor and lands on the header.
+    assert_eq!(t.key(down(123)), KeyDisposition::Swallow);
+    assert_eq!(
+        t.r.overview_items,
+        vec![OverviewItem::Monitor(m1), OverviewItem::Monitor(m2)]
+    );
+    assert_eq!(t.r.overview_sel, 0);
+    // ↓ to m2, → expands it in place, ↓ onto b, Enter focuses b.
+    assert_eq!(t.key(down(125)), KeyDisposition::Swallow);
+    assert_eq!(t.key(down(124)), KeyDisposition::Swallow);
+    assert_eq!(
+        t.r.overview_items,
+        vec![
+            OverviewItem::Monitor(m1),
+            OverviewItem::Monitor(m2),
+            OverviewItem::Window(b)
+        ]
+    );
+    assert_eq!(t.r.overview_sel, 1, "the highlight stays on the header");
+    let (rows, _) = t.r.overview_rows();
+    assert!(
+        rows.iter()
+            .any(|r| r.key == "▾" && r.desc.starts_with("▶ 2  ")),
+        "{rows:?}"
+    );
+    // Enter on a header toggles it too.
+    assert_eq!(t.key(down(36)), KeyDisposition::Swallow);
+    assert_eq!(t.r.overview_items.len(), 2);
+    assert_eq!(t.key(down(36)), KeyDisposition::Swallow);
+    assert_eq!(t.r.overview_items.len(), 3);
+    assert_eq!(t.key(down(125)), KeyDisposition::Swallow);
+    assert_eq!(t.key(down(36)), KeyDisposition::Swallow);
+    t.drain();
+    assert!(!t.r.overview);
+    assert_eq!(t.r.focused, Some(b));
+    // A search looks under collapsed monitors too.
+    t.ok("overview");
+    t.key(down(123)); // collapse m2 (focused now)
+    assert_eq!(t.r.overview_items.len(), 2);
+    assert_eq!(t.key(down(44)), KeyDisposition::Swallow); // `/`
+    assert_eq!(t.key(down(46)), KeyDisposition::Swallow); // `m`
+    assert_eq!(t.key(down(18)), KeyDisposition::Swallow); // `1`: "Display m1"
+    assert_eq!(t.r.overview_items, vec![OverviewItem::Window(a)]);
+    let (rows, _) = t.r.overview_rows();
+    assert!(
+        !rows.iter().any(|r| r.desc.contains("Display m2")),
+        "a monitor with no match has no header: {rows:?}"
+    );
 }
 
 #[test]
@@ -1808,9 +1901,12 @@ fn a_letter_on_the_overview_focuses_that_window_anywhere() {
         mods: Mods::default(),
         repeat: false,
     };
-    // Tab 1 shows only `a`; switch to tab 2 (`2` = keycode 19), then `a` is b.
+    // m2 is collapsed; `2` (keycode 19) expands it, and b is letter `b` (11).
+    assert_eq!(t.key(down(11)), KeyDisposition::Pass, "no such letter yet");
+    t.drain();
+    t.ok("overview");
     assert_eq!(t.key(down(19)), KeyDisposition::Swallow);
-    assert_eq!(t.key(down(0)), KeyDisposition::Swallow);
+    assert_eq!(t.key(down(11)), KeyDisposition::Swallow);
     t.drain();
     assert!(!t.r.overview, "closed after the pick");
     assert_eq!(t.r.focused, Some(t.r.by_handle[&h[1]]));
@@ -1824,7 +1920,7 @@ fn a_letter_on_the_overview_focuses_that_window_anywhere() {
 }
 
 #[test]
-fn overview_search_filters_the_tab_and_enter_focuses_the_highlighted_match() {
+fn overview_search_filters_the_windows_and_enter_focuses_the_highlighted_match() {
     let (mut t, h) = setup(
         vec![mon("m1", 0.0)],
         &[
@@ -1844,8 +1940,12 @@ fn overview_search_filters_the_tab_and_enter_focuses_the_highlighted_match() {
     assert_eq!(t.key(down(44)), KeyDisposition::Swallow);
     assert_eq!(t.key(down(5)), KeyDisposition::Swallow);
     t.drain();
-    let (rows, targets) = t.r.overview_rows();
-    assert_eq!(targets, vec![t.r.by_handle[&h[2]]], "only gamma matches");
+    let (rows, items) = t.r.overview_rows();
+    assert_eq!(
+        items,
+        vec![OverviewItem::Window(t.r.by_handle[&h[2]])],
+        "only gamma matches"
+    );
     assert!(
         rows.iter()
             .any(|r| r.key == "▶" && r.desc.contains("gamma")),
@@ -1997,14 +2097,29 @@ fn own_workspace_policy_falls_back_to_tiling_when_all_names_are_taken() {
 fn overview_arrows_and_enter_work_without_a_search() {
     let (mut t, h) = setup(
         vec![mon("m1", 0.0)],
-        &[win("com.a", "a", 0.0), win("com.b", "b", 300.0), win("com.c", "c", 600.0)],
+        &[
+            win("com.a", "a", 0.0),
+            win("com.b", "b", 300.0),
+            win("com.c", "c", 600.0),
+        ],
     );
     t.focus(h[1]);
     t.ok("overview");
-    assert_eq!(t.r.overview_sel, 1, "highlight starts on the focused window");
+    assert_eq!(
+        t.r.overview_sel, 2,
+        "highlight starts on the focused window"
+    );
     let (rows, _) = t.r.overview_rows();
-    assert!(rows.iter().any(|r| r.key == "b" && r.desc.starts_with("▶ ")), "{rows:?}");
-    let down = |code: u16| RawKeyEvent::Down { keycode: code, mods: Mods::default(), repeat: false };
+    assert!(
+        rows.iter()
+            .any(|r| r.key == "b" && r.desc.starts_with("▶ ")),
+        "{rows:?}"
+    );
+    let down = |code: u16| RawKeyEvent::Down {
+        keycode: code,
+        mods: Mods::default(),
+        repeat: false,
+    };
     assert_eq!(t.key(down(125)), KeyDisposition::Swallow); // ↓ → c
     assert_eq!(t.key(down(36)), KeyDisposition::Swallow); // Enter
     t.drain();

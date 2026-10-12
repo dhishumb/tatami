@@ -168,16 +168,17 @@ pub struct Reactor<P: Platform> {
     flash: Option<(String, Instant)>,
     /// The sheet is showing the desk overview instead of the keys.
     overview: bool,
-    /// Window per letter on the overview (`a`, `b`, …), in display order.
-    overview_targets: Vec<WindowId>,
+    /// The overview's lines the highlight can rest on, in display order:
+    /// every monitor header and the windows of the expanded monitors.
+    overview_items: Vec<OverviewItem>,
     /// A window picked on the overview, focused on the next `drain`.
     overview_pick: Option<WindowId>,
     /// Search text on the overview (`/` starts it); `None` = letters pick.
     overview_query: Option<String>,
-    /// Highlighted match while searching.
+    /// The highlighted item (index into `overview_items`).
     overview_sel: usize,
-    /// The monitor tab shown (index in left-to-right order).
-    overview_tab: usize,
+    /// Monitors the overview shows expanded (workspaces and windows).
+    overview_open: Vec<MonitorId>,
     /// A tiled window the user is moving by hand, and when to act on it.
     drag: Option<(WindowId, Instant)>,
     /// Windows whose app refused a frame write outright; floated at the end of the step.
@@ -290,6 +291,13 @@ fn creator<'a>(
 }
 
 /// `r` re-centred inside `area` when its centre is outside, shrunk to fit.
+/// A line on the overview the highlight can rest on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum OverviewItem {
+    Monitor(MonitorId),
+    Window(WindowId),
+}
+
 /// Letters for the overview's windows: `a`…`z` then `A`…`Z`.
 fn overview_letter(i: usize) -> Option<char> {
     match i {
@@ -371,11 +379,11 @@ impl<P: Platform> Reactor<P> {
             dirty: false,
             flash: None,
             overview: false,
-            overview_targets: Vec::new(),
+            overview_items: Vec::new(),
             overview_pick: None,
             overview_query: None,
             overview_sel: 0,
-            overview_tab: 0,
+            overview_open: Vec::new(),
             drag: None,
             unmanageable: Vec::new(),
             next_app_scan: now + APP_SCAN_EVERY,
@@ -847,11 +855,14 @@ impl<P: Platform> Reactor<P> {
         s
     }
 
-    /// The which-key sheet for `level`.
-    /// A key while the overview is up. Letters pick a window; `/` (or
-    /// space) starts a search, after which typing filters, ↑/↓ move the
-    /// highlight, Enter picks it and Backspace edits; Esc closes; any
-    /// other key closes it and goes on as a normal key.
+    /// A key while the overview is up: an outline, walked with the arrows.
+    /// `↑`/`↓` move the highlight over monitor headers and windows, `→`
+    /// expands the highlighted monitor and `←` collapses it (from a window
+    /// too), Enter focuses the window (or toggles the monitor); a letter
+    /// picks its window directly, `1`-`9` expand monitor N. `/` (or space)
+    /// starts a search over every monitor; typing filters, Backspace
+    /// edits. Esc closes; any other key closes it and goes on as a normal
+    /// key.
     fn overview_key(&mut self, keycode: u16, mods: Mods, now: Instant) -> KeyDisposition {
         let key = keyname_from_keycode(keycode);
         let close = |r: &mut Self| {
@@ -859,42 +870,68 @@ impl<P: Platform> Reactor<P> {
             r.set_overlay(ch);
         };
         let redraw = |r: &mut Self| r.set_overlay(OverlayChange::Show(Level::Top));
-        let refilter = |r: &mut Self| {
-            r.overview_sel = 0;
-            r.overview_targets = r.overview_rows().1;
+        // The lines changed: rebuild the items and keep the highlight on
+        // `keep` where it is still listed, else on the first line.
+        let rebuild = |r: &mut Self, keep: Option<OverviewItem>| {
+            r.overview_items = r.overview_rows().1;
+            r.overview_sel = keep
+                .and_then(|k| r.overview_items.iter().position(|&i| i == k))
+                .unwrap_or(0);
             redraw(r);
         };
-        let tabs = self.monitors.len().max(1);
+        let current = self.overview_items.get(self.overview_sel).copied();
         match (self.overview_query.is_some(), key) {
             (_, Some(KeyName::Escape)) => {
                 close(self);
                 KeyDisposition::Swallow
             }
-            (_, Some(KeyName::Right)) | (_, Some(KeyName::Left)) => {
-                self.overview_tab = if key == Some(KeyName::Right) {
-                    (self.overview_tab + 1) % tabs
-                } else {
-                    (self.overview_tab + tabs - 1) % tabs
+            (false, Some(KeyName::Right)) => {
+                if let Some(OverviewItem::Monitor(m)) = current
+                    && !self.overview_open.contains(&m)
+                {
+                    self.overview_open.push(m);
+                    rebuild(self, current);
+                }
+                KeyDisposition::Swallow
+            }
+            (false, Some(KeyName::Left)) => {
+                let m = match current {
+                    Some(OverviewItem::Monitor(m)) => Some(m),
+                    Some(OverviewItem::Window(w)) => Some(self.ws_monitor(self.wins[w].ws)),
+                    None => None,
                 };
-                refilter(self);
+                if let Some(m) = m {
+                    self.overview_open.retain(|&o| o != m);
+                    rebuild(self, Some(OverviewItem::Monitor(m)));
+                }
                 KeyDisposition::Swallow
             }
             (false, Some(KeyName::Char(d))) if d.is_ascii_digit() && d != '0' => {
                 let n = d as usize - '1' as usize;
-                if n < tabs {
-                    self.overview_tab = n;
-                    refilter(self);
+                if let Some(&m) = self.monitors_left_to_right().get(n) {
+                    if !self.overview_open.contains(&m) {
+                        self.overview_open.push(m);
+                    }
+                    rebuild(self, Some(OverviewItem::Monitor(m)));
                 }
                 KeyDisposition::Swallow
             }
             // Letters mode.
             (false, Some(KeyName::Char('/'))) | (false, Some(KeyName::Space)) => {
                 self.overview_query = Some(String::new());
-                refilter(self);
+                rebuild(self, None);
                 KeyDisposition::Swallow
             }
             (false, Some(KeyName::Char(c))) => {
-                let picked = overview_index(c).and_then(|i| self.overview_targets.get(i).copied());
+                let picked = overview_index(c).and_then(|i| {
+                    self.overview_items
+                        .iter()
+                        .filter_map(|it| match it {
+                            OverviewItem::Window(w) => Some(*w),
+                            OverviewItem::Monitor(_) => None,
+                        })
+                        .nth(i)
+                });
                 close(self);
                 match picked {
                     Some(id) => {
@@ -904,29 +941,45 @@ impl<P: Platform> Reactor<P> {
                     None => KeyDisposition::Pass,
                 }
             }
-            // Either mode: ↑/↓ move the highlight, Enter focuses it.
+            // Either mode: ↑/↓ move the highlight, Enter acts on it.
             (_, Some(KeyName::Enter)) => {
-                let picked = self.overview_targets.get(self.overview_sel).copied();
-                close(self);
-                self.overview_pick = picked;
+                match current {
+                    Some(OverviewItem::Window(w)) => {
+                        close(self);
+                        self.overview_pick = Some(w);
+                    }
+                    Some(OverviewItem::Monitor(m)) => {
+                        if self.overview_open.contains(&m) {
+                            self.overview_open.retain(|&o| o != m);
+                        } else {
+                            self.overview_open.push(m);
+                        }
+                        rebuild(self, current);
+                    }
+                    None => close(self),
+                }
                 KeyDisposition::Swallow
             }
             (true, Some(KeyName::Backspace)) => {
                 if self.overview_query.as_mut().and_then(String::pop).is_none() {
                     self.overview_query = None;
                 }
-                refilter(self);
+                rebuild(self, None);
+                if self.overview_query.is_none() {
+                    self.overview_sel = self.overview_focused_index();
+                    redraw(self);
+                }
                 KeyDisposition::Swallow
             }
             (_, Some(KeyName::Down)) | (_, Some(KeyName::Tab)) if !mods.shift => {
-                if !self.overview_targets.is_empty() {
-                    self.overview_sel = (self.overview_sel + 1) % self.overview_targets.len();
+                if !self.overview_items.is_empty() {
+                    self.overview_sel = (self.overview_sel + 1) % self.overview_items.len();
                 }
                 redraw(self);
                 KeyDisposition::Swallow
             }
             (_, Some(KeyName::Up)) | (_, Some(KeyName::Tab)) => {
-                let n = self.overview_targets.len();
+                let n = self.overview_items.len();
                 if n > 0 {
                     self.overview_sel = (self.overview_sel + n - 1) % n;
                 }
@@ -942,14 +995,14 @@ impl<P: Platform> Reactor<P> {
                 if let Some(q) = self.overview_query.as_mut() {
                     q.push(c);
                 }
-                refilter(self);
+                rebuild(self, None);
                 KeyDisposition::Swallow
             }
             (true, Some(KeyName::Space)) => {
                 if let Some(q) = self.overview_query.as_mut() {
                     q.push(' ');
                 }
-                refilter(self);
+                rebuild(self, None);
                 KeyDisposition::Swallow
             }
             (true, _) => KeyDisposition::Swallow,
@@ -960,19 +1013,24 @@ impl<P: Platform> Reactor<P> {
         }
     }
 
-    /// The desk: every monitor (left to right), its workspaces (visible one
-    /// starred), and one row per window: lettered, or, while searching,
-    /// only the windows matching the query with the highlighted one marked.
-    /// Returns the rows and the window each row stands for, in order.
-    fn overview_rows(&self) -> (Vec<OverlayRow>, Vec<WindowId>) {
+    /// The desk as an outline: every monitor (left to right) as a header,
+    /// and under each expanded one its workspaces (visible one starred)
+    /// with one lettered row per window. While searching every monitor is
+    /// searched, only matching windows are listed and the highlighted one
+    /// is marked. Returns the rows and the items the highlight can rest
+    /// on, in order.
+    fn overview_rows(&self) -> (Vec<OverlayRow>, Vec<OverviewItem>) {
         let mons = self.monitors_left_to_right();
+        let query = self.overview_query.as_deref().map(str::to_lowercase);
+        let searching = query.is_some();
         let mut rows = Vec::new();
-        let mut targets = Vec::new();
-        // One tab row per monitor, the active one marked; a click switches.
+        let mut items: Vec<OverviewItem> = Vec::new();
+        let mut letters = 0usize;
         for (i, &id) in mons.iter().enumerate() {
             let Some(mon) = self.monitors.get(id) else {
                 continue;
             };
+            let open = searching || self.overview_open.contains(&id);
             let count: usize = self
                 .model
                 .workspaces_on(id)
@@ -984,89 +1042,112 @@ impl<P: Platform> Reactor<P> {
             } else {
                 ""
             };
+            // Headers are items only outside a search; a click expands.
+            let sel = if !searching && items.len() == self.overview_sel {
+                "▶ "
+            } else {
+                ""
+            };
+            if !searching {
+                items.push(OverviewItem::Monitor(id));
+            }
+            let header_at = rows.len();
             rows.push(OverlayRow {
-                key: if i == self.overview_tab {
-                    "▸".into()
-                } else {
-                    String::new()
-                },
-                desc: format!("{}  {}  ({count}){here}", i + 1, mon.info.name),
+                key: if open { "▾" } else { "▸" }.into(),
+                desc: format!("{sel}{}  {}  ({count}){here}", i + 1, mon.info.name),
                 prefix: true,
                 command: vec!["overview".into(), (i + 1).to_string()],
             });
-        }
-        let Some(&id) = mons.get(self.overview_tab) else {
-            return (rows, targets);
-        };
-        let Some(mon) = self.monitors.get(id) else {
-            return (rows, targets);
-        };
-        let visible = self.model.visible_on(id);
-        let query = self.overview_query.as_deref().map(str::to_lowercase);
-        for ws in self.model.workspaces_on(id) {
-            let Some(name) = self.model.name_of(ws) else {
+            if !open {
                 continue;
-            };
-            let mark = if visible == Some(ws) { "*" } else { "" };
-            let mut ws_rows = vec![OverlayRow {
-                key: String::new(),
-                desc: format!("   workspace {name}{mark}"),
-                prefix: true,
-                command: Vec::new(),
-            }];
-            let mut any = false;
-            for w in self.ws_windows(ws) {
-                let m = &self.wins[w];
-                if let Some(q) = &query
-                    && !q.is_empty()
-                    && !format!("{} {} {} {}", m.w.app_name, m.w.title, name, mon.info.name)
-                        .to_lowercase()
-                        .contains(q.as_str())
-                {
-                    continue;
-                }
-                let selected = targets.len() == self.overview_sel;
-                let key = match &self.overview_query {
-                    None => overview_letter(targets.len())
-                        .map(String::from)
-                        .unwrap_or_default(),
-                    Some(_) if selected => "▶".to_string(),
-                    Some(_) => String::new(),
-                };
-                let sel = if selected && self.overview_query.is_none() {
-                    "▶ "
-                } else {
-                    ""
-                };
-                let float = if m.w.kind == WindowKind::Floating {
-                    "~ "
-                } else {
-                    ""
-                };
-                let desc = if m.w.title.is_empty() || m.w.title == m.w.app_name {
-                    format!("{sel}{float}{}", m.w.app_name)
-                } else {
-                    format!("{sel}{float}{} — {}", m.w.app_name, m.w.title)
-                };
-                ws_rows.push(OverlayRow {
-                    key,
-                    desc,
-                    prefix: false,
-                    command: vec![
-                        "focus".into(),
-                        "--window-id".into(),
-                        m.w.handle.0.to_string(),
-                    ],
-                });
-                targets.push(w);
-                any = true;
             }
-            // While searching, a workspace with no match has no header.
-            if any || self.overview_query.is_none() {
-                rows.extend(ws_rows);
+            let visible = self.model.visible_on(id);
+            let mut any_on_monitor = false;
+            for ws in self.model.workspaces_on(id) {
+                let Some(name) = self.model.name_of(ws) else {
+                    continue;
+                };
+                let mark = if visible == Some(ws) { "*" } else { "" };
+                let mut ws_rows = vec![OverlayRow {
+                    key: String::new(),
+                    desc: format!("   workspace {name}{mark}"),
+                    prefix: true,
+                    command: Vec::new(),
+                }];
+                let mut any = false;
+                for w in self.ws_windows(ws) {
+                    let m = &self.wins[w];
+                    if let Some(q) = &query
+                        && !q.is_empty()
+                        && !format!("{} {} {} {}", m.w.app_name, m.w.title, name, mon.info.name)
+                            .to_lowercase()
+                            .contains(q.as_str())
+                    {
+                        continue;
+                    }
+                    let selected = items.len() == self.overview_sel;
+                    let key = match &self.overview_query {
+                        None => overview_letter(letters)
+                            .map(String::from)
+                            .unwrap_or_default(),
+                        Some(_) if selected => "▶".to_string(),
+                        Some(_) => String::new(),
+                    };
+                    letters += 1;
+                    let sel = if selected && !searching { "▶ " } else { "" };
+                    let float = if m.w.kind == WindowKind::Floating {
+                        "~ "
+                    } else {
+                        ""
+                    };
+                    let desc = if m.w.title.is_empty() || m.w.title == m.w.app_name {
+                        format!("{sel}{float}{}", m.w.app_name)
+                    } else {
+                        format!("{sel}{float}{} — {}", m.w.app_name, m.w.title)
+                    };
+                    ws_rows.push(OverlayRow {
+                        key,
+                        desc,
+                        prefix: false,
+                        command: vec![
+                            "focus".into(),
+                            "--window-id".into(),
+                            m.w.handle.0.to_string(),
+                        ],
+                    });
+                    items.push(OverviewItem::Window(w));
+                    any = true;
+                }
+                // While searching, a workspace with no match has no header.
+                if any || !searching {
+                    rows.extend(ws_rows);
+                }
+                any_on_monitor |= any;
+            }
+            // Nor does a monitor with none.
+            if searching && !any_on_monitor {
+                rows.truncate(header_at);
             }
         }
-        (rows, targets)
+        (rows, items)
+    }
+
+    /// Opens the overview (or keeps it open) with `expand` expanded, the
+    /// highlight on `select` when it is listed, else on the focused window
+    /// or monitor.
+    pub(super) fn overview_show(&mut self, expand: MonitorId, select: Option<OverviewItem>) {
+        self.overview = true;
+        self.overview_query = None;
+        if !self.overview_open.contains(&expand) {
+            self.overview_open.push(expand);
+        }
+        self.overview_items = self.overview_rows().1;
+        self.overview_sel = select
+            .and_then(|s| self.overview_items.iter().position(|&i| i == s))
+            .unwrap_or_else(|| self.overview_focused_index());
+        let ch = self.keys.pin();
+        self.set_overlay(ch);
+        self.set_overlay(OverlayChange::Show(Level::Top));
     }
 
     /// The monitor `general.overview_monitor` names: `main`, `pointer`,
@@ -1089,16 +1170,20 @@ impl<P: Platform> Reactor<P> {
         }
     }
 
-    /// Where the highlight starts: the focused window's row on the tab, else
-    /// the first.
+    /// Where the highlight starts: the focused window's row, else the
+    /// focused monitor's header, else the first line.
     pub(super) fn overview_focused_index(&self) -> usize {
-        self.focused
-            .and_then(|f| self.overview_targets.iter().position(|&w| w == f))
+        let win = self.focused.map(OverviewItem::Window);
+        let mon = OverviewItem::Monitor(self.focused_monitor);
+        self.overview_items
+            .iter()
+            .position(|&i| Some(i) == win)
+            .or_else(|| self.overview_items.iter().position(|&i| i == mon))
             .unwrap_or(0)
     }
 
-    /// Monitor ids ordered by their x position, the order of the tabs and
-    /// of `focus-monitor next`.
+    /// Monitor ids ordered by their x position, the order of the overview
+    /// and of `focus-monitor next`.
     fn monitors_left_to_right(&self) -> Vec<MonitorId> {
         let mut mons: Vec<(MonitorId, f64)> = self
             .monitors
@@ -1110,15 +1195,14 @@ impl<P: Platform> Reactor<P> {
     }
 
     fn overview_content(&self) -> OverlayContent {
-        let (rows, targets) = self.overview_rows();
+        let (rows, items) = self.overview_rows();
         let title = match &self.overview_query {
-            None => {
-                "desk  ·  1-9 ←→ monitor  ·  ↑↓ Enter or letter: focus  ·  / search".to_string()
-            }
+            None => "desk  ·  ↑↓ move  → open  ← close  ·  Enter or letter: focus  ·  / search"
+                .to_string(),
             Some(q) => format!(
                 "search: {q}  ({} match{})",
-                targets.len(),
-                if targets.len() == 1 { "" } else { "es" }
+                items.len(),
+                if items.len() == 1 { "" } else { "es" }
             ),
         };
         let exit_hint = if self.overview_query.is_some() {

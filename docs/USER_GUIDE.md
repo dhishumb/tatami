@@ -129,7 +129,7 @@ until `Esc` or `Enter`; the others leave after one.
 | `alt+shift+1` … `9` | move the tile to workspace N and follow it |
 | `alt+tab` | the previous workspace |
 | `alt+/` | pin the key sheet |
-| `alt+o` | the desk on the main monitor, one tab per monitor: `1`-`9` or `←`/`→` pick the monitor, a letter focuses a window, `/` searches; `Esc` or `alt+o` closes |
+| `alt+o` | the desk on the main monitor as an outline: `↑`/`↓` move, `→` expands a monitor, `←` collapses it, `Enter` or a letter focuses a window, `/` searches; `Esc` or `alt+o` closes |
 | `alt+w` + | **workspaces**: `h`/`l` previous/next, `n`/`p` next/previous monitor, `m` move this workspace to the next monitor, `1-9` |
 | `alt+m` + (sticky) | **move**: `hjkl` move, `HJKL` move onto the monitor in that direction, `n` swap with the next tile, `1-9` move to workspace N |
 | `alt+r` + (sticky) | **resize**: `h`/`l` width, `j`/`k` height, `-`/`+` smart (along the container's axis), `=` balance |
@@ -254,24 +254,28 @@ back on.
 
 `alt+o` opens the desk on the main display (`overview_monitor` under
 `[general]` changes that: `pointer`, `focused`, a monitor number counted
-left to right, or part of a monitor's name), keyboard first. At the top,
-one tab per monitor, left to right, with its window count (the monitor
-you're on marked `◆`, the open tab marked `▸`); it opens on your current
-monitor's tab. Below, that monitor's workspaces (visible one starred) and
-one line per window with a letter (`~` marks a floating one).
+left to right, or part of a monitor's name), keyboard first. It is an
+outline: one header per monitor, left to right, with its window count
+(the monitor you're on marked `◆`); the monitor you're on opens expanded
+(`▾`), the others collapsed (`▸`). Under an expanded monitor, its
+workspaces (visible one starred) and one line per window with a letter
+(`~` marks a floating one).
 
-- `1`…`9` or `←`/`→` switch the tab.
-- `↑`/`↓` move the highlight (it starts on the window you're in) and
-  `Enter` focuses it; **or press a window's letter**. Either way the
-  window is focused wherever it is: its workspace is switched to and the
-  pointer moves to its monitor.
-- `/` (or space) starts a search within the tab: type, and the list
-  narrows to windows whose app, title or workspace contains the text;
-  the arrows and `Enter` work the same, Backspace edits (past an empty
-  search you're back to letters).
+- `↑`/`↓` move the highlight over headers and windows; it starts on the
+  window you're in.
+- `→` expands the highlighted monitor, `←` collapses it (from one of its
+  windows too, landing on the header); `Enter` on a header toggles it.
+  `1`…`9` expand monitor N and jump to it.
+- `Enter` on a window focuses it; **or press a window's letter**. Either
+  way the window is focused wherever it is: its workspace is switched to
+  and the pointer moves to its monitor.
+- `/` (or space) starts a search over every monitor, collapsed or not:
+  type, and the list narrows to windows whose app, title, workspace or
+  monitor contains the text; `↑`/`↓` and `Enter` work the same, Backspace
+  edits (past an empty search you're back to the outline).
 - `Esc` or `alt+o` closes; any other chord closes it and runs as usual.
 
-Lines and tabs can also be clicked, but nothing needs the mouse. This is
+Lines and headers can also be clicked, but nothing needs the mouse. This is
 also the app switcher for windows Cmd-tab cannot reach (plyterm, after
 it re-execs itself, is absent from macOS's app list). The menu bar item's
 menu lists the same workspaces with window counts.

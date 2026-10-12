@@ -8,7 +8,7 @@ use tatami_protocol::{
     WorkspaceTarget,
 };
 
-use super::{CmdResult, Outcome, Reactor, Reply, creator, fit_into};
+use super::{CmdResult, Outcome, OverviewItem, Reactor, Reply, creator, fit_into};
 use crate::ids::{MonitorId, NodeId, WindowId, WorkspaceId};
 use crate::layout;
 use crate::platform::{Platform, SetOrder};
@@ -240,25 +240,21 @@ impl<P: Platform> Reactor<P> {
                 ok()
             }
             Action::Overview(tab) => {
-                // `overview` toggles; `overview N` opens (or keeps) the
-                // sheet on monitor N's tab, as the tab rows' clicks do.
+                // `overview` toggles, opening with the focused monitor
+                // expanded; `overview N` opens (or keeps) the sheet with
+                // monitor N expanded and highlighted, as a header's click does.
                 match tab {
                     Some(n) if *n >= 1 => {
-                        let count = self.monitors.len();
+                        let mons = self.monitors_left_to_right();
+                        let count = mons.len();
                         if *n > count {
                             return Err(format!("no monitor {n} (there are {count})"));
                         }
-                        self.overview_tab = n - 1;
-                        self.overview_query = None;
-                        self.overview_sel = 0;
-                        self.overview = true;
-                        self.overview_targets = self.overview_rows().1;
-                        self.overview_sel = self.overview_focused_index();
-                        let ch = self.keys.pin();
-                        self.set_overlay(ch);
-                        self.set_overlay(tatami_keymap::OverlayChange::Show(
-                            tatami_keymap::Level::Top,
-                        ));
+                        let m = mons[n - 1];
+                        if !self.overview {
+                            self.overview_open.clear();
+                        }
+                        self.overview_show(m, Some(OverviewItem::Monitor(m)));
                     }
                     Some(_) => return Err("monitor numbers start at 1".to_string()),
                     None if self.overview => {
@@ -267,18 +263,8 @@ impl<P: Platform> Reactor<P> {
                         self.set_overlay(ch);
                     }
                     None => {
-                        self.overview = true;
-                        self.overview_tab = self
-                            .monitors_left_to_right()
-                            .iter()
-                            .position(|&m| m == self.focused_monitor)
-                            .unwrap_or(0);
-                        self.overview_query = None;
-                        self.overview_sel = 0;
-                        self.overview_targets = self.overview_rows().1;
-                        self.overview_sel = self.overview_focused_index();
-                        let ch = self.keys.pin();
-                        self.set_overlay(ch);
+                        self.overview_open.clear();
+                        self.overview_show(self.focused_monitor, None);
                     }
                 }
                 ok()

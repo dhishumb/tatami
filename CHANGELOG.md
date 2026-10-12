@@ -17,9 +17,13 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
   visible one. Tiling is a move into another window's workspace
   (`alt+shift+N`, `alt+m N`). `new_window = "tile"` under `[workspaces]`
   keeps i3's open-beside-the-focused-tile behaviour.
-- **Overview arrows in every mode:** `↑`/`↓` move the highlight, which
-  starts on the window you're in, and `Enter` focuses it, with or
-  without a search typed.
+- **The overview is an outline.** Monitor tabs switched with `←`/`→`
+  put the arrows at odds with each other; now `↑`/`↓` walk one list of
+  monitor headers and windows, `→` expands the highlighted monitor, `←`
+  collapses it (from a window too), and `Enter` focuses a window or
+  toggles a header. The highlight starts on the window you're in, with
+  that monitor expanded and the others folded; `1`-`9` expand monitor N.
+  A search looks under every monitor, folded or not.
 - **A tiling window manager for macOS in the shape of AeroSpace**, using
   only the public Accessibility API: a daemon (`tatamid`) that owns every
   window on the main thread's run loop, and a thin CLI (`tatami`) over a
@@ -48,12 +52,11 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
 - **A menu bar item** with each monitor's workspaces and the service
   actions, and a status flash naming why a chord did nothing.
 - **`alt+o`, the desk overview and switcher:** the sheet, always on the
-  main monitor, has a tab per monitor (`1`-`9` or `←`/`→`, opening on
-  the monitor you're on) listing its workspaces (visible one starred)
-  and a lettered line per window. A letter, or `/` then typing with
-  `↑`/`↓` and `Enter`, focuses that window wherever it is; lines and
-  tabs can be clicked too. Cmd-tab cannot reach an app macOS has lost
-  track of (plyterm after a hot swap); this can. `Esc`, a chord, or
+  main monitor, lists every monitor with its workspaces (visible one
+  starred) and a lettered line per window. A letter, or `/` then typing
+  with `↑`/`↓` and `Enter`, focuses that window wherever it is; lines
+  and headers can be clicked too. Cmd-tab cannot reach an app macOS has
+  lost track of (plyterm after a hot swap); this can. `Esc`, a chord, or
   `alt+o` again closes it. `focus --window-id <n>` and `overview <n>`
   are the commands behind the clicks. It opens on the main display by
   default; `overview_monitor` under `[general]` picks another (`pointer`,

@@ -239,20 +239,45 @@ impl<P: Platform> Reactor<P> {
                 self.set_overlay(ch);
                 ok()
             }
-            Action::Overview => {
-                // Toggle: the pinned sheet shows the desk until a key
-                // resolves it; a second press closes it.
-                if self.overview {
-                    let now = self.now;
-                    let ch = self.keys.enter_mode(None, now);
-                    self.set_overlay(ch);
-                } else {
-                    self.overview = true;
-                    self.overview_query = None;
-                    self.overview_sel = 0;
-                    self.overview_targets = self.overview_rows().1;
-                    let ch = self.keys.pin();
-                    self.set_overlay(ch);
+            Action::Overview(tab) => {
+                // `overview` toggles; `overview N` opens (or keeps) the
+                // sheet on monitor N's tab, as the tab rows' clicks do.
+                match tab {
+                    Some(n) if *n >= 1 => {
+                        let count = self.monitors.len();
+                        if *n > count {
+                            return Err(format!("no monitor {n} (there are {count})"));
+                        }
+                        self.overview_tab = n - 1;
+                        self.overview_query = None;
+                        self.overview_sel = 0;
+                        self.overview = true;
+                        self.overview_targets = self.overview_rows().1;
+                        let ch = self.keys.pin();
+                        self.set_overlay(ch);
+                        self.set_overlay(tatami_keymap::OverlayChange::Show(
+                            tatami_keymap::Level::Top,
+                        ));
+                    }
+                    Some(_) => return Err("monitor numbers start at 1".to_string()),
+                    None if self.overview => {
+                        let now = self.now;
+                        let ch = self.keys.enter_mode(None, now);
+                        self.set_overlay(ch);
+                    }
+                    None => {
+                        self.overview = true;
+                        self.overview_tab = self
+                            .monitors_left_to_right()
+                            .iter()
+                            .position(|&m| m == self.focused_monitor)
+                            .unwrap_or(0);
+                        self.overview_query = None;
+                        self.overview_sel = 0;
+                        self.overview_targets = self.overview_rows().1;
+                        let ch = self.keys.pin();
+                        self.set_overlay(ch);
+                    }
                 }
                 ok()
             }

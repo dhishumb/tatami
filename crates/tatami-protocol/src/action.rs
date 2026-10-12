@@ -310,7 +310,7 @@ pub enum Action {
     Help,
     /// Show the desk: every monitor's workspaces and their windows, on the
     /// sheet, until a key resolves it.
-    Overview,
+    Overview(Option<usize>),
     Quit,
     Ping,
     Version,
@@ -592,7 +592,14 @@ impl Action {
                 }
             }),
             "help" | "keys" => Action::Help,
-            "overview" => Action::Overview,
+            "overview" => Action::Overview(match pos.as_slice() {
+                [] => None,
+                [n] => Some(
+                    n.parse()
+                        .map_err(|_| usage(cmd, format!("bad monitor number `{n}`")))?,
+                ),
+                _ => return Err(usage(cmd, "usage: overview [monitor-number]")),
+            }),
             "quit" => Action::Quit,
             "ping" => Action::Ping,
             "version" => Action::Version,
@@ -837,7 +844,8 @@ mod tests {
         );
         assert_eq!(p("split opposite"), Action::Split(SplitArg::Opposite));
         assert_eq!(p("flip"), Action::Flip);
-        assert_eq!(p("overview"), Action::Overview);
+        assert_eq!(p("overview"), Action::Overview(None));
+        assert_eq!(p("overview 2"), Action::Overview(Some(2)));
         assert_eq!(p("mode resize"), Action::Mode("resize".into()));
         assert_eq!(p("mode normal"), Action::Normal);
         assert_eq!(p("normal"), Action::Normal);

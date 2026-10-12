@@ -176,6 +176,8 @@ pub struct Reactor<P: Platform> {
     overview_query: Option<String>,
     /// Highlighted match while searching.
     overview_sel: usize,
+    /// The monitor tab shown (index in left-to-right order).
+    overview_tab: usize,
     /// A tiled window the user is moving by hand, and when to act on it.
     drag: Option<(WindowId, Instant)>,
     /// Windows whose app refused a frame write outright; floated at the end of the step.
@@ -373,6 +375,7 @@ impl<P: Platform> Reactor<P> {
             overview_pick: None,
             overview_query: None,
             overview_sel: 0,
+            overview_tab: 0,
             drag: None,
             unmanageable: Vec::new(),
             next_app_scan: now + APP_SCAN_EVERY,
@@ -861,9 +864,27 @@ impl<P: Platform> Reactor<P> {
             r.overview_targets = r.overview_rows().1;
             redraw(r);
         };
+        let tabs = self.monitors.len().max(1);
         match (self.overview_query.is_some(), key) {
             (_, Some(KeyName::Escape)) => {
                 close(self);
+                KeyDisposition::Swallow
+            }
+            (_, Some(KeyName::Right)) | (_, Some(KeyName::Left)) => {
+                self.overview_tab = if key == Some(KeyName::Right) {
+                    (self.overview_tab + 1) % tabs
+                } else {
+                    (self.overview_tab + tabs - 1) % tabs
+                };
+                refilter(self);
+                KeyDisposition::Swallow
+            }
+            (false, Some(KeyName::Char(d))) if d.is_ascii_digit() && d != '0' => {
+                let n = d as usize - '1' as usize;
+                if n < tabs {
+                    self.overview_tab = n;
+                    refilter(self);
+                }
                 KeyDisposition::Swallow
             }
             // Letters mode.
@@ -944,99 +965,120 @@ impl<P: Platform> Reactor<P> {
     /// only the windows matching the query with the highlighted one marked.
     /// Returns the rows and the window each row stands for, in order.
     fn overview_rows(&self) -> (Vec<OverlayRow>, Vec<WindowId>) {
-        let mut mons: Vec<(MonitorId, &MonitorInfo)> =
-            self.monitors.iter().map(|(id, m)| (id, &m.info)).collect();
-        mons.sort_by(|a, b| a.1.frame.x.total_cmp(&b.1.frame.x));
+        let mons = self.monitors_left_to_right();
         let mut rows = Vec::new();
         let mut targets = Vec::new();
-        for (i, (id, info)) in mons.iter().enumerate() {
-            let here = if *id == self.focused_monitor {
-                "◆ "
+        // One tab row per monitor, the active one marked; a click switches.
+        for (i, &id) in mons.iter().enumerate() {
+            let Some(mon) = self.monitors.get(id) else {
+                continue;
+            };
+            let count: usize = self
+                .model
+                .workspaces_on(id)
+                .into_iter()
+                .map(|ws| self.ws_windows(ws).len())
+                .sum();
+            let here = if id == self.focused_monitor {
+                " ◆"
             } else {
                 ""
             };
             rows.push(OverlayRow {
+                key: if i == self.overview_tab {
+                    "▸".into()
+                } else {
+                    String::new()
+                },
+                desc: format!("{}  {}  ({count}){here}", i + 1, mon.info.name),
+                prefix: true,
+                command: vec!["overview".into(), (i + 1).to_string()],
+            });
+        }
+        let Some(&id) = mons.get(self.overview_tab) else {
+            return (rows, targets);
+        };
+        let Some(mon) = self.monitors.get(id) else {
+            return (rows, targets);
+        };
+        let visible = self.model.visible_on(id);
+        let query = self.overview_query.as_deref().map(str::to_lowercase);
+        for ws in self.model.workspaces_on(id) {
+            let Some(name) = self.model.name_of(ws) else {
+                continue;
+            };
+            let mark = if visible == Some(ws) { "*" } else { "" };
+            let mut ws_rows = vec![OverlayRow {
                 key: String::new(),
-                desc: format!("{here}{}  {}", i + 1, info.name),
+                desc: format!("   workspace {name}{mark}"),
                 prefix: true,
                 command: Vec::new(),
-            });
-            let visible = self.model.visible_on(*id);
-            for ws in self.model.workspaces_on(*id) {
-                let Some(name) = self.model.name_of(ws) else {
+            }];
+            let mut any = false;
+            for w in self.ws_windows(ws) {
+                let m = &self.wins[w];
+                if let Some(q) = &query
+                    && !q.is_empty()
+                    && !format!("{} {} {} {}", m.w.app_name, m.w.title, name, mon.info.name)
+                        .to_lowercase()
+                        .contains(q.as_str())
+                {
                     continue;
+                }
+                let key = match &self.overview_query {
+                    None => overview_letter(targets.len())
+                        .map(String::from)
+                        .unwrap_or_default(),
+                    Some(_) if targets.len() == self.overview_sel => "▶".to_string(),
+                    Some(_) => String::new(),
                 };
-                let mark = if visible == Some(ws) { "*" } else { "" };
-                rows.push(OverlayRow {
-                    key: String::new(),
-                    desc: format!("   workspace {name}{mark}"),
-                    prefix: true,
-                    command: Vec::new(),
+                let float = if m.w.kind == WindowKind::Floating {
+                    "~ "
+                } else {
+                    ""
+                };
+                let desc = if m.w.title.is_empty() || m.w.title == m.w.app_name {
+                    format!("{float}{}", m.w.app_name)
+                } else {
+                    format!("{float}{} — {}", m.w.app_name, m.w.title)
+                };
+                ws_rows.push(OverlayRow {
+                    key,
+                    desc,
+                    prefix: false,
+                    command: vec![
+                        "focus".into(),
+                        "--window-id".into(),
+                        m.w.handle.0.to_string(),
+                    ],
                 });
-                let query = self.overview_query.as_deref().map(str::to_lowercase);
-                let mut ws_rows = Vec::new();
-                for w in self.ws_windows(ws) {
-                    let m = &self.wins[w];
-                    if let Some(q) = &query
-                        && !q.is_empty()
-                        && !format!("{} {} {} {}", m.w.app_name, m.w.title, name, info.name)
-                            .to_lowercase()
-                            .contains(q.as_str())
-                    {
-                        continue;
-                    }
-                    let key = match &self.overview_query {
-                        None => overview_letter(targets.len())
-                            .map(String::from)
-                            .unwrap_or_default(),
-                        Some(_) if targets.len() == self.overview_sel => "▶".to_string(),
-                        Some(_) => String::new(),
-                    };
-                    let float = if m.w.kind == WindowKind::Floating {
-                        "~ "
-                    } else {
-                        ""
-                    };
-                    let desc = if m.w.title.is_empty() || m.w.title == m.w.app_name {
-                        format!("{float}{}", m.w.app_name)
-                    } else {
-                        format!("{float}{} — {}", m.w.app_name, m.w.title)
-                    };
-                    ws_rows.push(OverlayRow {
-                        key,
-                        desc,
-                        prefix: false,
-                        command: vec![
-                            "focus".into(),
-                            "--window-id".into(),
-                            m.w.handle.0.to_string(),
-                        ],
-                    });
-                    targets.push(w);
-                }
-                // While searching, a workspace with no match has no header.
-                if ws_rows.is_empty() && self.overview_query.is_some() {
-                    rows.pop();
-                    continue;
-                }
-                rows.extend(ws_rows);
+                targets.push(w);
+                any = true;
             }
-            // Likewise a monitor with nothing left under it.
-            if self.overview_query.is_some()
-                && rows
-                    .last()
-                    .is_some_and(|r| r.prefix && r.desc.ends_with(info.name.as_str()))
-            {
-                rows.pop();
+            // While searching, a workspace with no match has no header.
+            if any || self.overview_query.is_none() {
+                rows.extend(ws_rows);
             }
         }
         (rows, targets)
     }
 
+    /// Monitor ids ordered by their x position, the order of the tabs and
+    /// of `focus-monitor next`.
+    fn monitors_left_to_right(&self) -> Vec<MonitorId> {
+        let mut mons: Vec<(MonitorId, f64)> = self
+            .monitors
+            .iter()
+            .map(|(id, m)| (id, m.info.frame.x))
+            .collect();
+        mons.sort_by(|a, b| a.1.total_cmp(&b.1));
+        mons.into_iter().map(|(id, _)| id).collect()
+    }
+
     fn overview_content(&self) -> OverlayContent {
         let (rows, targets) = self.overview_rows();
         let title = match &self.overview_query {
-            None => "desk  ·  letter: focus that window  ·  / search".to_string(),
+            None => "desk  ·  1-9 ←→ monitor  ·  letter: focus  ·  / search".to_string(),
             Some(q) => format!(
                 "search: {q}  ({} match{})",
                 targets.len(),

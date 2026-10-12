@@ -466,7 +466,8 @@ pub fn command_words(a: &Action) -> String {
         Action::JoinWith(d) => format!("join-with {d}"),
         Action::Flip => "flip".to_string(),
         Action::FocusWindow(h) => format!("focus --window-id {h}"),
-        Action::Overview => "overview".to_string(),
+        Action::Overview(None) => "overview".to_string(),
+        Action::Overview(Some(n)) => format!("overview {n}"),
         Action::Split(s) => format!(
             "split {}",
             match s {

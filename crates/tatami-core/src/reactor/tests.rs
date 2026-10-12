@@ -1726,50 +1726,63 @@ fn focusing_another_monitor_by_key_brings_the_pointer_along() {
 }
 
 #[test]
-fn overview_shows_every_monitor_workspace_and_window_then_toggles_off() {
-    let (mut t, _h) = setup(
+fn overview_has_a_tab_per_monitor_and_lists_the_active_tabs_windows() {
+    let (mut t, h) = setup(
         vec![mon("m1", 0.0), mon("m2", W)],
         &[win("com.a", "a", 0.0), win("com.b", "b", W + 10.0)],
     );
+    t.fake().set_mouse(tatami_protocol::Point {
+        x: W + 100.0,
+        y: 100.0,
+    });
+    t.focus(h[1]); // focus on m2: the overview opens on m2's tab
     t.calls();
     t.ok("overview");
-    let shown: Vec<Option<String>> = t
-        .calls()
-        .into_iter()
-        .filter_map(|c| match c {
-            FakeCall::Overlay(title) => Some(title),
-            _ => None,
-        })
-        .collect();
-    assert!(
-        matches!(shown.last(), Some(Some(t)) if t.starts_with("desk")),
-        "{shown:?}"
-    );
     assert!(t.r.overview);
-    t.ok("overview");
-    assert!(!t.r.overview);
-    let shown: Vec<Option<String>> = t
-        .calls()
-        .into_iter()
-        .filter_map(|c| match c {
-            FakeCall::Overlay(title) => Some(title),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(shown.last(), Some(&None), "hidden again: {shown:?}");
-    // Content: both monitors, their visible workspace, a letter per window.
-    let c = t.r.overview_content();
-    let text: String = c
-        .rows
+    let (rows, targets) = t.r.overview_rows();
+    let text: String = rows
         .iter()
         .map(|r| format!("{}|{}\n", r.key, r.desc))
         .collect();
     assert!(
-        text.contains("Display m1") && text.contains("Display m2"),
+        text.contains("|1  Display m1  (1)") && text.contains("▸|2  Display m2  (1) ◆"),
         "{text}"
     );
-    assert!(text.contains("workspace 1*"), "{text}");
-    assert!(text.contains("a|a") && text.contains("b|b"), "{text}");
+    assert_eq!(
+        targets,
+        vec![t.r.by_handle[&h[1]]],
+        "only the active tab's windows: {text}"
+    );
+    assert_eq!(
+        rows[0].command,
+        vec!["overview".to_string(), "1".into()],
+        "tab rows click to a tab"
+    );
+    // The sheet went to the main monitor (m1), not the pointer's (m2).
+    let shown_on = t
+        .calls()
+        .into_iter()
+        .filter_map(|c| match c {
+            FakeCall::OverlayOn(uuid) => Some(uuid),
+            _ => None,
+        })
+        .next_back();
+    assert_eq!(shown_on.as_deref(), Some("m1"));
+    // `1` switches to the first tab; a click on a tab row does the same.
+    let down = |code: u16| RawKeyEvent::Down {
+        keycode: code,
+        mods: Mods::default(),
+        repeat: false,
+    };
+    assert_eq!(t.key(down(18)), KeyDisposition::Swallow);
+    assert_eq!(t.r.overview_rows().1, vec![t.r.by_handle[&h[0]]]);
+    t.event(PlatformEvent::Command(vec!["overview".into(), "2".into()]));
+    assert_eq!(t.r.overview_rows().1, vec![t.r.by_handle[&h[1]]]);
+    // → wraps around; a second `overview` closes.
+    assert_eq!(t.key(down(124)), KeyDisposition::Swallow);
+    assert_eq!(t.r.overview_tab, 0);
+    t.ok("overview");
+    assert!(!t.r.overview);
 }
 
 #[test]
@@ -1782,13 +1795,14 @@ fn a_letter_on_the_overview_focuses_that_window_anywhere() {
         .set_mouse(tatami_protocol::Point { x: 100.0, y: 100.0 });
     t.focus(h[0]);
     t.ok("overview");
-    // `b` is the second window: keycode 11.
-    let disp = t.key(RawKeyEvent::Down {
-        keycode: 11,
+    let down = |code: u16| RawKeyEvent::Down {
+        keycode: code,
         mods: Mods::default(),
         repeat: false,
-    });
-    assert_eq!(disp, KeyDisposition::Swallow);
+    };
+    // Tab 1 shows only `a`; switch to tab 2 (`2` = keycode 19), then `a` is b.
+    assert_eq!(t.key(down(19)), KeyDisposition::Swallow);
+    assert_eq!(t.key(down(0)), KeyDisposition::Swallow);
     t.drain();
     assert!(!t.r.overview, "closed after the pick");
     assert_eq!(t.r.focused, Some(t.r.by_handle[&h[1]]));
@@ -1796,26 +1810,19 @@ fn a_letter_on_the_overview_focuses_that_window_anywhere() {
     assert!(p.x >= W, "pointer followed to the second monitor: {p:?}");
     // Esc closes without picking.
     t.ok("overview");
-    assert_eq!(
-        t.key(RawKeyEvent::Down {
-            keycode: 53,
-            mods: Mods::default(),
-            repeat: false
-        }),
-        KeyDisposition::Swallow
-    );
+    assert_eq!(t.key(down(53)), KeyDisposition::Swallow);
     t.drain();
     assert!(!t.r.overview);
 }
 
 #[test]
-fn overview_search_filters_and_enter_focuses_the_highlighted_match() {
+fn overview_search_filters_the_tab_and_enter_focuses_the_highlighted_match() {
     let (mut t, h) = setup(
-        vec![mon("m1", 0.0), mon("m2", W)],
+        vec![mon("m1", 0.0)],
         &[
             win("com.a", "alpha notes", 0.0),
-            win("com.b", "beta", W + 10.0),
-            win("com.c", "gamma", W + 400.0),
+            win("com.b", "beta", 300.0),
+            win("com.c", "gamma", 600.0),
         ],
     );
     t.focus(h[0]);
@@ -1825,7 +1832,7 @@ fn overview_search_filters_and_enter_focuses_the_highlighted_match() {
         mods: Mods::default(),
         repeat: false,
     };
-    // `/` (keycode 44) starts the search; `g` (5) narrows to gamma.
+    // `/` (44) starts the search; `g` (5) narrows to gamma.
     assert_eq!(t.key(down(44)), KeyDisposition::Swallow);
     assert_eq!(t.key(down(5)), KeyDisposition::Swallow);
     t.drain();
@@ -1837,13 +1844,9 @@ fn overview_search_filters_and_enter_focuses_the_highlighted_match() {
         "{rows:?}"
     );
     assert!(!rows.iter().any(|r| r.desc.contains("alpha")), "{rows:?}");
-    assert!(
-        rows.iter().all(|r| !r.desc.contains("Display m1")),
-        "a monitor with no match has no header: {rows:?}"
-    );
     // Backspace to an empty query keeps search mode; one more leaves it.
     assert_eq!(t.key(down(51)), KeyDisposition::Swallow);
-    assert!(t.r.overview_query.as_deref() == Some(""));
+    assert_eq!(t.r.overview_query.as_deref(), Some(""));
     assert_eq!(t.r.overview_rows().1.len(), 3);
     // ↓ (125) moves the highlight to beta; Enter (36) focuses it.
     assert_eq!(t.key(down(125)), KeyDisposition::Swallow);
@@ -1854,15 +1857,11 @@ fn overview_search_filters_and_enter_focuses_the_highlighted_match() {
 }
 
 #[test]
-fn overview_rows_carry_a_focus_command_and_open_on_the_main_monitor() {
+fn overview_window_rows_carry_a_focus_command_for_clicks() {
     let (mut t, h) = setup(
-        vec![mon("m1", 0.0), mon("m2", W)],
-        &[win("com.a", "a", 0.0), win("com.b", "b", W + 10.0)],
+        vec![mon("m1", 0.0)],
+        &[win("com.a", "a", 0.0), win("com.b", "b", 500.0)],
     );
-    t.fake().set_mouse(tatami_protocol::Point {
-        x: W + 100.0,
-        y: 100.0,
-    });
     t.ok("overview");
     let (rows, _) = t.r.overview_rows();
     let cmd = &rows.iter().find(|r| r.desc.contains('b')).unwrap().command;
@@ -1874,17 +1873,6 @@ fn overview_rows_carry_a_focus_command_and_open_on_the_main_monitor() {
             h[1].0.to_string()
         ]
     );
-    // The click arrives as a Command and focuses the window.
     t.event(PlatformEvent::Command(cmd.clone()));
     assert_eq!(t.r.focused, Some(t.r.by_handle[&h[1]]));
-    // The sheet went to the main monitor (m1), not the pointer's (m2).
-    let shown_on = t
-        .calls()
-        .into_iter()
-        .filter_map(|c| match c {
-            FakeCall::OverlayOn(uuid) => Some(uuid),
-            _ => None,
-        })
-        .last();
-    assert_eq!(shown_on.as_deref(), Some("m1"), "overlay monitor");
 }

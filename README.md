@@ -7,10 +7,12 @@ thin CLI (`tatami`) talks to it over a Unix socket.
 
 What it does differently from AeroSpace:
 
-- **Workspaces belong to monitors.** Each monitor has its own `1`…`9`;
-  `alt+3` switches *this* monitor's 3, and two monitors can both show a
-  `2`. AeroSpace's shared pool is one config line away
-  (`model = "shared"`).
+- **Workspaces belong to monitors, and windows get their own.** Each
+  monitor has its own `1`…`9`; `alt+3` switches *this* monitor's 3, and
+  two monitors can both show a `2`. A new window takes the lowest empty
+  workspace on its monitor and fills it; tiling is a deliberate move of
+  one window into another's workspace (`alt+shift+8`). AeroSpace's shared
+  pool and i3's tile-on-open are each one config line away.
 - **plyterm-style keys.** The chord you press is the prefix. One-press
   Alt chords for the every-minute actions, four group chords
   (`alt+w` workspaces, `alt+m` move, `alt+r` resize, `alt+s` service) that

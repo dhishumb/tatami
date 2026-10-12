@@ -12,6 +12,14 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
 
 ### Added
 
+- **New windows get their own workspace.** A window opens on the lowest
+  empty workspace of its monitor and fills it; the tenth tiles into the
+  visible one. Tiling is a move into another window's workspace
+  (`alt+shift+N`, `alt+m N`). `new_window = "tile"` under `[workspaces]`
+  keeps i3's open-beside-the-focused-tile behaviour.
+- **Overview arrows in every mode:** `↑`/`↓` move the highlight, which
+  starts on the window you're in, and `Enter` focuses it, with or
+  without a search typed.
 - **A tiling window manager for macOS in the shape of AeroSpace**, using
   only the public Accessibility API: a daemon (`tatamid`) that owns every
   window on the main thread's run loop, and a thin CLI (`tatami`) over a

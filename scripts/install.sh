@@ -316,6 +316,7 @@ accordion_padding = 30
 [workspaces]
 model = "per-monitor"        # each monitor has its own 1..9; "shared" = AeroSpace's pool
 names = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
+new_window = "own-workspace" # each new window fills its own workspace; "tile" opens it beside the focused one
 
 [restore]
 enabled = true               # put windows back after a restart

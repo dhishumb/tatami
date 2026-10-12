@@ -92,10 +92,13 @@ fn min_len(tree: &Tree, node: NodeId, axis: Axis, inner: f64, min: MinOf<'_>) ->
 }
 
 /// Where each child of a tiles container goes along its axis: `(start, len)`
-/// per child. Weights share the space, but no child goes below its minimum
-/// (the others shrink to pay for it). When the minimums alone exceed the
-/// space, every child keeps its minimum and they overlap evenly, so all of
-/// them stay on the monitor rather than the last ones leaving it.
+/// per child, plus whether they overlap. Weights are the user's intent (a
+/// resize is a weight change), so every child gets at least its weighted
+/// share. A child whose minimum is larger keeps that minimum and the row
+/// overlaps: the children are spaced so the first starts at the left edge
+/// and the last ends at the right, and `place` raises the focused one. The
+/// alternative, shrinking the neighbours to pay for a minimum, capped
+/// every resize once the neighbours hit their own minimums.
 fn tile_spans(
     tree: &Tree,
     kids: &[NodeId],
@@ -104,68 +107,36 @@ fn tile_spans(
     len: f64,
     inner: f64,
     min: MinOf<'_>,
-) -> Vec<(f64, f64)> {
+) -> (Vec<(f64, f64)>, bool) {
     let n = kids.len();
     let avail = (len - inner * (n - 1) as f64).max(0.0);
-    let mins: Vec<f64> = kids
-        .iter()
-        .map(|&c| min_len(tree, c, axis, inner, min))
-        .collect();
     let weights: Vec<f64> = kids.iter().map(|&c| weight(tree, c)).collect();
-    let mut lens = vec![0.0; n];
-    if mins.iter().sum::<f64>() <= avail {
-        // Water-filling: clamp whoever would fall below its minimum, share
-        // the rest by weight among the others, repeat until stable.
-        let mut clamped = vec![false; n];
-        loop {
-            let fixed: f64 = (0..n).filter(|&i| clamped[i]).map(|i| mins[i]).sum();
-            let wsum: f64 = (0..n).filter(|&i| !clamped[i]).map(|i| weights[i]).sum();
-            let free = (avail - fixed).max(0.0);
-            let mut changed = false;
-            for i in 0..n {
-                if clamped[i] {
-                    lens[i] = mins[i];
-                    continue;
-                }
-                let want = if wsum > 0.0 {
-                    free * weights[i] / wsum
-                } else {
-                    0.0
-                };
-                if want < mins[i] {
-                    clamped[i] = true;
-                    changed = true;
-                } else {
-                    lens[i] = want;
-                }
-            }
-            if !changed {
-                break;
-            }
+    let wsum: f64 = weights.iter().sum();
+    let mut lens: Vec<f64> = weights.iter().map(|w| avail * w / wsum).collect();
+    let mut overflow = false;
+    for (i, &c) in kids.iter().enumerate() {
+        let m = min_len(tree, c, axis, inner, min);
+        if m > lens[i] + 0.5 {
+            lens[i] = m;
+            overflow = true;
         }
-        // Whole points, the last unclamped child absorbing the rounding.
+    }
+    let mut out = Vec::with_capacity(n);
+    if !overflow {
+        // Whole points, the last child absorbing the rounding.
         let mut cum = 0.0;
-        let mut out = Vec::with_capacity(n);
-        let last_free = (0..n).rev().find(|&i| !clamped[i]);
         for i in 0..n {
-            let l = if Some(i) == last_free {
-                let rest: f64 = (i + 1..n).map(|j| lens[j].round()).sum();
-                (avail - cum - rest).max(0.0)
+            let l = if i + 1 == n {
+                (avail - cum).max(0.0)
             } else {
                 lens[i].round()
             };
             out.push((start + cum + i as f64 * inner, l));
             cum += l;
         }
-        return out;
+        return (out, false);
     }
-    // Overflow: each child gets the larger of its minimum and its weighted
-    // share (so a resize still makes a tile wider; it overlaps more), spaced
-    // so the first starts at the left edge and the last ends at the right.
-    let wsum: f64 = weights.iter().sum();
-    for i in 0..n {
-        lens[i] = mins[i].max((avail * weights[i] / wsum).round());
-    }
+    let lens: Vec<f64> = lens.iter().map(|l| l.round()).collect();
     let total: f64 = lens.iter().sum();
     let last = lens[n - 1];
     let k = if total - last > 0.0 {
@@ -174,12 +145,11 @@ fn tile_spans(
         0.0
     };
     let mut cum = 0.0;
-    let mut out = Vec::with_capacity(n);
     for &l in &lens {
         out.push(((start + cum * k).round(), l));
         cum += l;
     }
-    out
+    (out, true)
 }
 
 fn span(r: &Rect, axis: Axis) -> (f64, f64) {
@@ -295,9 +265,28 @@ fn place(tree: &Tree, id: NodeId, rect: Rect, z: u16, ctx: &Ctx, out: &mut Vec<P
                     place(tree, c, r, z.saturating_add(dz), ctx, out);
                 }
             } else {
-                let spans = tile_spans(tree, children, axis, start, len, ctx.inner, ctx.min);
-                for (&c, (pos, l)) in children.iter().zip(spans) {
-                    place(tree, c, with_span(rect, axis, pos, l), z, ctx, out);
+                let (spans, overlap) =
+                    tile_spans(tree, children, axis, start, len, ctx.inner, ctx.min);
+                // Overlapping tiles stack like an accordion: the focused
+                // one (or the container's most recent) on top.
+                let raised = if overlap {
+                    Some(raised_index(tree, id, children, ctx.focused))
+                } else {
+                    None
+                };
+                for (i, (&c, (pos, l))) in children.iter().zip(spans).enumerate() {
+                    let dz = match raised {
+                        Some(r) if i != r => u16::try_from(1 + i.abs_diff(r)).unwrap_or(u16::MAX),
+                        _ => 0,
+                    };
+                    place(
+                        tree,
+                        c,
+                        with_span(rect, axis, pos, l),
+                        z.saturating_add(dz),
+                        ctx,
+                        out,
+                    );
                 }
             }
         }
@@ -329,7 +318,7 @@ pub fn node_rect(tree: &Tree, root: NodeId, prm: &Params<'_>, node: NodeId) -> O
             (len - lead - trail).max(0.0),
         ));
     }
-    let (pos, l) = tile_spans(tree, kids, axis, start, len, gaps.inner, min)[i];
+    let (pos, l) = tile_spans(tree, kids, axis, start, len, gaps.inner, min).0[i];
     Some(with_span(pr, axis, pos, l))
 }
 
@@ -377,7 +366,7 @@ mod tests {
     }
 
     #[test]
-    fn a_minimum_is_honoured_and_the_others_pay_for_it() {
+    fn a_minimum_above_its_share_overlaps_instead_of_shrinking_the_others() {
         let ws = wids(3);
         let mut t = Tree::new();
         let root = t.new_root(Layout::HTiles);
@@ -396,10 +385,16 @@ mod tests {
         };
         compute(&t, root, &p, &mut out);
         let r = |w: WindowId| out.iter().find(|p| p.window == w).unwrap().rect;
-        assert_eq!(r(ws[1]).w, 700.0);
-        assert_eq!(r(ws[0]).w + r(ws[2]).w, 300.0);
-        assert_eq!(r(ws[0]).w, r(ws[2]).w);
-        assert_eq!(r(ws[2]).right(), 1000.0);
+        assert_eq!(r(ws[1]).w, 700.0, "keeps its minimum");
+        assert_eq!(r(ws[0]).w, 333.0, "the others keep their weighted share");
+        assert_eq!(r(ws[2]).w, 333.0);
+        assert_eq!(r(ws[0]).x, 0.0);
+        assert_eq!(r(ws[2]).right(), 1000.0, "and everything stays on screen");
+        let z = |w: WindowId| out.iter().find(|p| p.window == w).unwrap().z;
+        assert!(
+            z(ws[0]) == 0 && z(ws[1]) > 0 && z(ws[2]) > 0,
+            "the first child is raised when nothing is focused"
+        );
     }
 
     #[test]

@@ -245,12 +245,12 @@ Some windows cannot fill a tile and tatami floats them:
 - dialogs and sheets, which are never adopted unless a rule names them.
 
 Apps with a **minimum width** (many Electron apps, Finder, browsers at
-narrow widths) do tile, but never below that width. The layout honours
-the minimums and the other tiles pay for them; when the minimums alone
-exceed the monitor, the tiles keep their minimums and overlap evenly so
-all of them stay on screen. Four such apps side by side on a 1920 px
-monitor is that case: pair two of them with `alt+e`, or move one to
-another workspace.
+narrow widths) do tile, but never below that width. Your resizes always
+win: a tile gets at least its share, and a neighbour that cannot shrink
+keeps its minimum and is overlapped instead, with the focused tile on
+top and the row still ending at the screen edge. Four such apps side by
+side on a 1920 px monitor overlap from the start: pair two of them with
+`alt+e`, or move one to another workspace.
 
 A tile whose app ignores or refuses a size is logged
 (`window refuses its frame`) and remembered for that dimension.

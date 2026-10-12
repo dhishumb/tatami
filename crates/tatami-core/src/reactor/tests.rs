@@ -441,8 +441,9 @@ fn min_size_window_retries_then_its_slot_grows_to_fit() {
     let mut t = start_logged(f, cfg(), None);
     let calls = t.calls();
     assert!(set_frames(&calls, h[1]).contains(&SetOrder::PosSizePos));
+    // b keeps its 700; a keeps its half and is overlapped, ending at the edge.
     assert_eq!(t.frame(h[1]), r(300.0, 0.0, 700.0, H));
-    assert_eq!(t.frame(h[0]), r(0.0, 0.0, 300.0, H));
+    assert_eq!(t.frame(h[0]), r(0.0, 0.0, 500.0, H));
     assert!(!t.r.tx_pending());
 }
 

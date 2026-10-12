@@ -62,6 +62,12 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
 - **A floating window left parked by a killed daemon comes back.** Tiled
   strays always did, through the layout; floating ones were adopted where
   they were, one point inside a corner, and stayed there.
+- **A resize always wins over a neighbour's minimum.** Growing a pair
+  beside Bruno and Claude stopped once those two reached their minimum
+  widths. The weighted share is now a floor for every tile: a neighbour
+  that cannot shrink keeps its minimum and is overlapped instead, the
+  focused tile is raised on top, and the row still ends at the screen
+  edge.
 - **Resizing works in a crowded row.** When a row's minimum widths
   already exceed the monitor (four Electron-style apps on a 1920 px
   display), every tile was pinned to exactly its minimum and resize did

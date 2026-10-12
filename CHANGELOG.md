@@ -54,6 +54,14 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
 
 ### Fixed
 
+- **`tatami subscribe --all` works.** The daemon checked the raw topic
+  list and refused `--all`; it now expands to every topic.
+- **Saving a checkpoint from `alt+s c` or the menu works.** Only the CLI
+  path reached the daemon's checkpoint code; keys and the menu now hand
+  the request over.
+- **A floating window left parked by a killed daemon comes back.** Tiled
+  strays always did, through the layout; floating ones were adopted where
+  they were, one point inside a corner, and stayed there.
 - **Resizing no longer tops out.** Growing a tile took equally from its
   siblings and stopped once the smallest would fall below a tenth of the
   row, so a tile in a row of four could never pass about 70%. The share

@@ -270,7 +270,12 @@ impl<P: Platform> Reactor<P> {
                 }
                 Ok(Reply::text(text))
             }
-            Action::Checkpoint(_) => Err("checkpoint is handled by the daemon".to_string()),
+            Action::Checkpoint(c) => {
+                // The CLI path never gets here (the daemon answers it with
+                // the file names); keys and the menu hand it over.
+                self.out.push(Outcome::Checkpoint(c.clone()));
+                ok()
+            }
             Action::Subscribe(_) => Err("subscribe is handled by the daemon".to_string()),
             Action::Quit => {
                 self.out.push(Outcome::Exit);

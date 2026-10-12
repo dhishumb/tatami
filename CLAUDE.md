@@ -27,8 +27,10 @@ scripts/install.sh --upgrade                                                    
 
 ## Crates and the dependency direction
 
-`protocol ← keymap ← config`, `protocol ← core ← {platform, state}`,
-everything `← tatamid`; `tatami` (CLI) depends on `protocol` only.
+`keymap` depends on nothing; `protocol ← config` (and `keymap ← config`);
+`protocol ← state`; `core` depends on protocol, keymap, config and state;
+`platform ← core`; everything `← tatamid`; `tatami` (CLI) depends on
+`protocol` and `config`.
 
 - **protocol**: `Action` is the single vocabulary for keybindings and the
   CLI. Add commands there first; the parser is the contract. Names follow
@@ -37,17 +39,21 @@ everything `← tatamid`; `tatami` (CLI) depends on `protocol` only.
   (`--features fake`). The `Platform` trait in `core/src/platform.rs` is
   the only door to the OS. Coordinates are AX coordinates (top-left
   origin); the platform crate flips AppKit frames once at its boundary.
-- **platform** is the only crate with `unsafe`. Thin wrappers, one-line
-  `// SAFETY:` each. Everything runs on the main thread's run loop.
+- **platform** is where `unsafe` lives, as thin wrappers with a one-line
+  `// SAFETY:` each; the only exceptions are three libc calls for uids in
+  `tatamid/src/ipc.rs` and `tatami/src/service.rs`. Everything in platform
+  runs on the main thread's run loop.
 - **keymap** is generic over the action type and has no OS deps.
 
 ## Rules learned from real behaviour
 
 - AX frame writes return success even when the app ignores them. Always
-  read back. Chrome needs position→size→position when the new size would
-  not fit from the old position (`SetOrder::PosSizePos`); Finder honours
-  size→position. The reactor's frame transactions encode this; don't
-  add special cases per app.
+  read back. Every write is position→size→position (`PosSizePos`): Chrome
+  clamps a grow written size-first from the old position, and the three
+  writes cost less than one visible retry. Verify at 40/90/250 ms; a
+  window that answers two writes with the same size at the right position
+  is "stubborn" after the second, and only the refused dimension becomes
+  a minimum. Don't add special cases per app.
 - `AXWindows` only lists windows on the current Space. We assume one
   Space per monitor.
 - Keys are **physical**: the tap gives a keycode and a shift flag, so
@@ -78,10 +84,14 @@ everything `← tatamid`; `tatami` (CLI) depends on `protocol` only.
 - One `RefCell<Daemon>`; every reactor call goes through `step()`, which
   borrows once, handles `Outcome`s, re-arms the single timer, and only
   then does the things that need the `Rc` (reload, exit, tap install).
+  The one exception is the key tap: it borrows directly for `on_key`
+  (synchronous swallow decision) and passes the key through if the
+  daemon is busy, then queues a `drain` through the run loop.
 - Platform callbacks only queue and poke; the socket, signal and watcher
   threads only send on the channel and call the waker.
-- Persistence: `Outcome::Dirty` → save 1 s after the last change, plus a
-  5 s periodic save skipped when the bytes are unchanged, plus on exit.
+- Persistence: `Outcome::Dirty` → save 1 s after the last change (the
+  clock restarts on every change), plus a 5 s periodic save skipped when
+  the bytes are unchanged, plus on exit.
   Nothing expensive on this path.
 
 ## Protocol

@@ -47,6 +47,7 @@ Quit Rectangle, yabai or AeroSpace first; two managers fight.
 | `alt+shift+h/j/k/l` | move the window (crosses monitors at the root edge) |
 | `alt+←/→/↑/↓` | resize the focused window by 50 px (width, height) |
 | `alt+shift+←/→/↑/↓` | move the window, same as `alt+shift+h/j/k/l` |
+| `alt+v` / `alt+b` | split: the next window opens below / beside the focused one |
 | `alt+1`…`alt+9` | workspace N on the focused monitor |
 | `alt+shift+1`…`9` | move the window to workspace N and follow |
 | `alt+tab` | workspace back and forth |
@@ -131,8 +132,9 @@ Names follow AeroSpace. Plus:
 Hidden workspaces park their windows with one point still on their own
 monitor (macOS refuses fully off-screen moves); quitting un-parks
 everything, and a restart after a crash un-parks strays. Frame changes are
-transactions: set, read back, retry in position-size-position order, and
-after three refusals the window keeps its size (apps with minimum sizes).
+transactions: write position-size-position, read back, retry at 40, 90 and
+250 ms, and a window that keeps refusing a size keeps it (apps with minimum
+widths); the layout then treats that size as a minimum.
 All state lives on the main thread's run loop; the socket, signals and
 config watcher are std threads that poke it.
 

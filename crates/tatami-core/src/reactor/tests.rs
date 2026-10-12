@@ -1295,8 +1295,13 @@ fn requests_ping_quit_exec_and_daemon_words() {
     assert!(out.contains(&Outcome::Exec("open -a Mail".into())));
     let (_, out) = t.r.handle_request(&args("reload-config"), t.now);
     assert!(out.contains(&Outcome::ReloadConfig));
-    let (resp, _) = t.r.handle_request(&args("checkpoint save"), t.now);
-    assert_eq!(resp.error, "checkpoint is handled by the daemon");
+    let (resp, out) = t.r.handle_request(&args("checkpoint save"), t.now);
+    assert!(resp.ok, "{resp:?}");
+    assert!(
+        out.contains(&Outcome::Checkpoint(tatami_protocol::CheckpointCmd::Save(
+            None
+        )))
+    );
     let (resp, _) = t.r.handle_request(&args("frobnicate"), t.now);
     assert!(!resp.ok);
     let (res, _) = t.r.run_actions(
@@ -1569,4 +1574,44 @@ fn restore_keeps_a_rule_floated_window_floating_even_from_a_tiled_slot() {
         "the terminal has the monitor to itself"
     );
     assert!(t.r.restore.is_none(), "no placeholder left waiting");
+}
+
+#[test]
+fn checkpoint_from_a_key_is_handed_to_the_daemon() {
+    let (mut t, _h) = setup(vec![mon("m1", 0.0)], &[win("com.a", "a", 0.0)]);
+    let (res, out) = t.r.run_actions(
+        &[tatami_protocol::Action::Checkpoint(
+            tatami_protocol::CheckpointCmd::Save(Some("work".into())),
+        )],
+        t.now,
+    );
+    assert!(res.is_ok(), "{res:?}");
+    assert!(out.iter().any(|o| matches!(
+        o,
+        Outcome::Checkpoint(tatami_protocol::CheckpointCmd::Save(Some(n))) if n == "work"
+    )));
+}
+
+#[test]
+fn a_floating_window_parked_by_a_dead_daemon_is_pulled_back() {
+    // Parked one point inside the bottom-right corner, where a killed
+    // daemon left it; fixed size, so it floats on adoption.
+    let (f, h) = fake_with(
+        vec![mon("m1", 0.0)],
+        &[
+            win("com.a", "a", 0.0),
+            win("com.apple.calculator", "Calculator", 0.0),
+        ],
+    );
+    f.set_resizable(h[1], false);
+    f.user_set_frame(h[1], Rect::new(W - 1.0, H - 1.0, 300.0, 200.0));
+    f.take_events();
+    let mut t = start(f, cfg(), None);
+    t.settle();
+    let r = t.frame(h[1]);
+    assert_eq!(t.r.wins[t.r.by_handle[&h[1]]].w.kind, WindowKind::Floating);
+    assert!(
+        r.x >= 0.0 && r.right() <= W && r.y >= 0.0 && r.bottom() <= H,
+        "back on the monitor: {r:?}"
+    );
 }

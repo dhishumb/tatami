@@ -43,6 +43,8 @@ use restore::RestoreSession;
 /// What the daemon must do after a reactor step.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
+    /// `checkpoint …` from a key or the menu; the daemon owns the files.
+    Checkpoint(tatami_protocol::CheckpointCmd),
     /// Layout state changed; persist it (the daemon debounces).
     Dirty,
     Broadcast(IpcEvent),
@@ -1331,6 +1333,21 @@ impl<P: Platform> Reactor<P> {
             return;
         }
         self.attach(id, ws, fresh);
+        // A floating window parked by a daemon that was killed is still off
+        // in a corner; tiled strays come back through the layout, floating
+        // ones need pulling in by hand.
+        if kind == WindowKind::Floating && self.model.is_visible(ws) {
+            let mons: Vec<Rect> = self.monitors.values().map(|m| m.info.frame).collect();
+            let f = self.wins[id].w.frame;
+            if parking::is_parked(&f, &mons) {
+                let area = self
+                    .monitors
+                    .get(self.ws_monitor(ws))
+                    .map(|m| m.info.visible)
+                    .unwrap_or(f);
+                self.request_frame(id, centered(f, &area));
+            }
+        }
         let focus_now = self.pending_focus.take_if(|h| *h == handle).is_some()
             || (fresh && self.visible_ws(self.focused_monitor) == Some(ws));
         if fresh {

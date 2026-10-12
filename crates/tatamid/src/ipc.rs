@@ -121,7 +121,10 @@ fn serve(mut stream: UnixStream, tx: Sender<crate::MainMsg>, wake: Waker) {
         if req.args.first().map(String::as_str) == Some("subscribe") {
             let (ack_tx, ack_rx) = sync_channel(1);
             let (sink_tx, sink_rx) = std::sync::mpsc::channel();
-            let topics = req.args[1..].to_vec();
+            let mut topics = req.args[1..].to_vec();
+            if topics.iter().any(|t| t == "--all") {
+                topics = IpcEvent::TOPICS.iter().map(|s| s.to_string()).collect();
+            }
             if tx
                 .send(
                     IpcMsg::Subscribe {
@@ -275,7 +278,7 @@ mod tests {
             &mut s,
             &Request {
                 id: 1,
-                args: vec!["subscribe".into(), "mode".into()],
+                args: vec!["subscribe".into(), "--all".into()],
                 protocol: 0,
             },
         )
@@ -283,10 +286,12 @@ mod tests {
         let ack: Response = read_frame(&mut s).unwrap().unwrap();
         assert!(ack.ok);
         let ev: IpcEvent = read_frame(&mut s).unwrap().unwrap();
+        // The fake main thread echoes the topics it was handed: `--all`
+        // must have been expanded before it got there.
         assert_eq!(
             ev,
             IpcEvent::ModeChanged {
-                mode: Some("mode".into())
+                mode: Some(IpcEvent::TOPICS.join(","))
             }
         );
 

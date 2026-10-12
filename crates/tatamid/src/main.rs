@@ -489,12 +489,19 @@ impl Daemon {
     fn handle_outcomes(&mut self, outcomes: Vec<Outcome>, now: Instant) {
         for o in outcomes {
             match o {
-                Outcome::Dirty => {
-                    if self.dirty_since.is_none() {
-                        self.dirty_since = Some(now);
-                    }
-                }
+                // Trailing: the clock restarts on every change, and the 5 s
+                // periodic save bounds the wait under continuous change.
+                Outcome::Dirty => self.dirty_since = Some(now),
                 Outcome::Broadcast(ev) => self.broadcast(ev),
+                Outcome::Checkpoint(cmd) => {
+                    let (resp, more) = checkpoint(&mut self.reactor, cmd, now);
+                    if resp.ok {
+                        tracing::info!("{}", resp.stdout);
+                    } else {
+                        tracing::warn!("checkpoint: {}", resp.error);
+                    }
+                    self.handle_outcomes(more, now);
+                }
                 Outcome::Exec(cmd) => {
                     if let Err(e) = std::process::Command::new("/bin/sh")
                         .arg("-c")

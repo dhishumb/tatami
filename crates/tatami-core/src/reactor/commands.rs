@@ -253,6 +253,7 @@ impl<P: Platform> Reactor<P> {
                         self.overview_sel = 0;
                         self.overview = true;
                         self.overview_targets = self.overview_rows().1;
+                        self.overview_sel = self.overview_focused_index();
                         let ch = self.keys.pin();
                         self.set_overlay(ch);
                         self.set_overlay(tatami_keymap::OverlayChange::Show(
@@ -275,6 +276,7 @@ impl<P: Platform> Reactor<P> {
                         self.overview_query = None;
                         self.overview_sel = 0;
                         self.overview_targets = self.overview_rows().1;
+                        self.overview_sel = self.overview_focused_index();
                         let ch = self.keys.pin();
                         self.set_overlay(ch);
                     }

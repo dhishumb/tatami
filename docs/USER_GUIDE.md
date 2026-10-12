@@ -144,10 +144,20 @@ mode means shift and `=`.
 
 ## Working with tiles
 
-**A new window** opens beside the focused tile in the same container and
-takes an equal share. `alt+v` first, and it opens below instead (`alt+b`:
-beside, when the container is a column). The split takes effect for the
-next window; on an existing neighbour use `alt+e`.
+**A new window gets its own workspace** on the monitor it opens on: the
+lowest of `1`…`9` with nothing in it, which tatami switches to, so the
+window fills the screen. Ten VS Code windows land on `1`…`9` and the
+tenth tiles into the visible one. Tiling is then a deliberate act: move a
+window into another's workspace (`alt+shift+8` moves the focused one to
+8 and follows it; `alt+m` `8` moves it without following) and the two
+share that screen. An empty workspace is forgotten when you leave it, so
+its number is free again. `alt+o` is the map of it all.
+
+`new_window = "tile"` under `[workspaces]` restores i3's habit: a new
+window opens beside the focused tile in the visible workspace. In that
+mode `alt+v` first makes it open below instead (`alt+b`: beside, when
+the container is a column); the split takes effect for the next window.
+On an existing neighbour use `alt+e`.
 
 **Flip** (`alt+e`) is the one-key split. In a row of four, it takes the
 focused tile and its right-hand neighbour (left, if none) and stacks the
@@ -251,12 +261,14 @@ monitor's tab. Below, that monitor's workspaces (visible one starred) and
 one line per window with a letter (`~` marks a floating one).
 
 - `1`…`9` or `←`/`→` switch the tab.
-- **A letter focuses that window** wherever it is: its workspace is
-  switched to and the pointer moves to its monitor.
+- `↑`/`↓` move the highlight (it starts on the window you're in) and
+  `Enter` focuses it; **or press a window's letter**. Either way the
+  window is focused wherever it is: its workspace is switched to and the
+  pointer moves to its monitor.
 - `/` (or space) starts a search within the tab: type, and the list
   narrows to windows whose app, title or workspace contains the text;
-  `↑`/`↓` move the highlight, `Enter` focuses it, Backspace edits (past an
-  empty search you're back to letters).
+  the arrows and `Enter` work the same, Backspace edits (past an empty
+  search you're back to letters).
 - `Esc` or `alt+o` closes; any other chord closes it and runs as usual.
 
 Lines and tabs can also be clicked, but nothing needs the mouse. This is
@@ -388,6 +400,7 @@ Workspace names of your own and ones that are never forgotten:
 [workspaces]
 names = ["web", "code", "chat", "4", "5"]
 persistent = ["chat"]
+new_window = "tile"          # default "own-workspace": each new window on its own
 ```
 
 ## The CLI and scripting

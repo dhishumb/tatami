@@ -1992,3 +1992,22 @@ fn own_workspace_policy_falls_back_to_tiling_when_all_names_are_taken() {
     );
     assert_eq!(t.frame(b).w + t.frame(cw).w, W);
 }
+
+#[test]
+fn overview_arrows_and_enter_work_without_a_search() {
+    let (mut t, h) = setup(
+        vec![mon("m1", 0.0)],
+        &[win("com.a", "a", 0.0), win("com.b", "b", 300.0), win("com.c", "c", 600.0)],
+    );
+    t.focus(h[1]);
+    t.ok("overview");
+    assert_eq!(t.r.overview_sel, 1, "highlight starts on the focused window");
+    let (rows, _) = t.r.overview_rows();
+    assert!(rows.iter().any(|r| r.key == "b" && r.desc.starts_with("▶ ")), "{rows:?}");
+    let down = |code: u16| RawKeyEvent::Down { keycode: code, mods: Mods::default(), repeat: false };
+    assert_eq!(t.key(down(125)), KeyDisposition::Swallow); // ↓ → c
+    assert_eq!(t.key(down(36)), KeyDisposition::Swallow); // Enter
+    t.drain();
+    assert!(!t.r.overview);
+    assert_eq!(t.r.focused, Some(t.r.by_handle[&h[2]]));
+}

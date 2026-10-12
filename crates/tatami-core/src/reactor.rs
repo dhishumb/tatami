@@ -1089,6 +1089,14 @@ impl<P: Platform> Reactor<P> {
         }
     }
 
+    /// Where the highlight starts: the focused window's row on the tab, else
+    /// the first.
+    pub(super) fn overview_focused_index(&self) -> usize {
+        self.focused
+            .and_then(|f| self.overview_targets.iter().position(|&w| w == f))
+            .unwrap_or(0)
+    }
+
     /// Monitor ids ordered by their x position, the order of the tabs and
     /// of `focus-monitor next`.
     fn monitors_left_to_right(&self) -> Vec<MonitorId> {

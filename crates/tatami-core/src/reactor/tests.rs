@@ -1688,3 +1688,39 @@ fn resize_in_an_overflowing_row_still_grows_the_focused_tile() {
         assert!(r.x >= 0.0 && r.right() <= 1920.0, "on screen: {r:?}");
     }
 }
+
+#[test]
+fn focusing_another_monitor_by_key_brings_the_pointer_along() {
+    let (mut t, h) = setup(
+        vec![mon("m1", 0.0), mon("m2", W)],
+        &[win("com.a", "a", 0.0), win("com.b", "b", W + 10.0)],
+    );
+    t.fake()
+        .set_mouse(tatami_protocol::Point { x: 100.0, y: 100.0 });
+    t.focus(h[0]);
+    t.ok("focus-monitor next");
+    let p = t.fake().mouse_location().expect("pointer");
+    assert!(p.x >= W, "pointer moved to the second monitor: {p:?}");
+    // The next chord therefore acts on the second monitor.
+    t.ok("workspace 2");
+    let m2 =
+        t.r.monitors
+            .iter()
+            .find(|(_, m)| m.info.uuid == "m2")
+            .map(|(i, _)| i)
+            .unwrap();
+    let vis = t.r.model.visible_on(m2).unwrap();
+    assert_eq!(t.r.model.name_of(vis), Some("2"));
+    // And focus crossing an edge does the same on the way back.
+    t.fake().set_mouse(tatami_protocol::Point {
+        x: W + 100.0,
+        y: 100.0,
+    });
+    t.ok("workspace 1");
+    t.ok("focus left");
+    let p = t.fake().mouse_location().unwrap();
+    assert!(
+        p.x < W,
+        "pointer followed focus back to the first monitor: {p:?}"
+    );
+}

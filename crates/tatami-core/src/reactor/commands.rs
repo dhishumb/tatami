@@ -426,6 +426,7 @@ impl<P: Platform> Reactor<P> {
             self.focused_monitor = m;
             self.broadcast_focus();
         }
+        self.pointer_to(m, None);
         self.status_dirty = true;
     }
 

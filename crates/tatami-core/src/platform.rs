@@ -222,4 +222,8 @@ pub trait Platform {
     /// Where the pointer is, in AX coordinates. "Where control is" when
     /// macOS cannot tell us which app has focus.
     fn mouse_location(&self) -> Option<tatami_protocol::Point>;
+    /// Move the pointer (AX coordinates). Keyboard focus crossing to another
+    /// monitor brings the pointer along, so "act where the pointer is" and
+    /// the keys agree.
+    fn warp_mouse(&self, p: tatami_protocol::Point);
 }

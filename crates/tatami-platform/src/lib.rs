@@ -398,6 +398,14 @@ impl Platform for MacPlatform {
         })
     }
 
+    fn warp_mouse(&self, p: tatami_protocol::Point) {
+        // CG's global space is AX's: top-left origin of the primary display.
+        let err = objc2_core_graphics::CGWarpMouseCursorPosition(CGPoint { x: p.x, y: p.y });
+        if err != objc2_core_graphics::CGError::Success {
+            tracing::debug!(?err, "warp mouse failed");
+        }
+    }
+
     fn set_menu(&mut self, items: &[MenuItem]) {
         self.status.set_menu(self.mtm, items);
     }

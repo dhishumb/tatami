@@ -1553,6 +1553,25 @@ impl<P: Platform> Reactor<P> {
         if relayout {
             self.relayout(ws);
         }
+        let (m, frame) = (
+            self.ws_monitor(ws),
+            self.wins[id].w.expected.unwrap_or(self.wins[id].w.frame),
+        );
+        self.pointer_to(m, Some(frame));
+    }
+
+    /// Bring the pointer to monitor `m` (into `around`, else the monitor's
+    /// middle) when it is elsewhere, so that "act where the pointer is"
+    /// follows keyboard focus across monitors.
+    fn pointer_to(&mut self, m: MonitorId, around: Option<Rect>) {
+        if !self.cfg.general.mouse_follows_focus || self.monitor_under_mouse() == Some(m) {
+            return;
+        }
+        let Some(mon) = self.monitors.get(m) else {
+            return;
+        };
+        let c = around.unwrap_or(mon.info.visible).center();
+        self.p.warp_mouse(c);
     }
 
     /// Focus what `ws` last had focused, or clear focus if it is empty.

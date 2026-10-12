@@ -54,6 +54,10 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
 
 ### Fixed
 
+- **Going to another monitor by keyboard sticks.** `alt+w n` and
+  `alt+h/l` across an edge moved focus, but the next chord snapped back
+  to the monitor under the pointer. The pointer now follows keyboard
+  focus across monitors (`[general] mouse_follows_focus`, default on).
 - **`tatami subscribe --all` works.** The daemon checked the raw topic
   list and refused `--all`; it now expands to every topic.
 - **Saving a checkpoint from `alt+s c` or the menu works.** Only the CLI

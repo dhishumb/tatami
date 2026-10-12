@@ -50,6 +50,9 @@ pub struct General {
     /// The held modifier that makes a chord a binding outside a mode.
     #[serde(deserialize_with = "de_leader")]
     pub leader: Mods,
+    /// When a key moves focus to another monitor, move the pointer there
+    /// too, so the next chord acts on that monitor.
+    pub mouse_follows_focus: bool,
 }
 
 /// Long enough that a practised `alt+w 3` never flashes the sheet, short
@@ -62,6 +65,7 @@ impl Default for General {
             start_at_login: false,
             which_key_delay_ms: WHICH_KEY_DELAY_MS,
             leader: Mods::ALT,
+            mouse_follows_focus: true,
         }
     }
 }

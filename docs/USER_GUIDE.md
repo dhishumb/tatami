@@ -188,9 +188,13 @@ Cmd-Tabbing to it switches to its workspace. Quitting tatami, a
 SIGTERM, or the next start after a crash puts every parked window back.
 
 `alt+w` `n`/`p` moves focus to the next/previous monitor (left-to-right
-order); `alt+w` `m` carries the whole visible workspace to the next
-monitor, merging it with a same-named workspace there. `alt+m` `H`…`L`
-move one tile onto the monitor in that direction.
+order), and `alt+h/j/k/l` past the edge of a monitor crosses to the one
+in that direction. Either way the pointer comes along, so the next chord
+acts on the monitor you just reached (`mouse_follows_focus = false`
+under `[general]` turns that off, at which point the keys and the pointer
+rule disagree). `alt+w` `m` carries the whole visible workspace to the
+next monitor, merging it with a same-named workspace there. `alt+m`
+`H`…`L` move one tile onto the monitor in that direction.
 
 Unplug a monitor and its workspaces fold onto the main monitor as hidden
 workspaces; plug it back in and they return. Monitors are identified by
@@ -331,11 +335,13 @@ edit it, set `preset = "mine"`. A file can start from another with
 (`focus left`, `move-node-to-workspace 3`, `layout accordion`), chained
 with `;` or as a list; a list ending in `"normal"` leaves the mode.
 
-Use Ctrl+Alt as the leader instead of Alt:
+Use Ctrl+Alt as the leader instead of Alt, and keep the pointer where it
+is when keys cross monitors:
 
 ```toml
 [general]
 leader = "ctrl+alt"
+mouse_follows_focus = false
 ```
 
 Workspace names of your own and ones that are never forgotten:

@@ -363,6 +363,10 @@ impl Platform for FakePlatform {
     fn mouse_location(&self) -> Option<tatami_protocol::Point> {
         self.st.borrow().mouse
     }
+
+    fn warp_mouse(&self, p: tatami_protocol::Point) {
+        self.st.borrow_mut().mouse = Some(p);
+    }
 }
 
 #[cfg(test)]

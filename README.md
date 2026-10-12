@@ -70,6 +70,8 @@ captured until you leave.
 **Control is where the pointer is.** A chord or command acts on the monitor
 under the mouse, and the key sheet opens there. If the focused window is on
 another monitor, the pointer's monitor's last-focused window takes over.
+When a key moves focus to another monitor (`alt+w n`, `alt+l` past the
+edge), the pointer comes along, so the keys and the rule agree.
 
 ## Config
 

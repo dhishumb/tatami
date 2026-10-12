@@ -21,9 +21,10 @@ pub struct ConfigWatcher {
 
 pub fn start(config_path: &Path, tx: Sender<MainMsg>, wake: Waker) -> Option<ConfigWatcher> {
     let dir = config_path.parent()?.to_path_buf();
-    if !dir.exists() {
-        // Nothing to watch yet; the user has no config. Defaults apply and
-        // a later `tatami reload-config` picks the file up.
+    // Watch the directory even before a config exists, so the first file
+    // the user writes is picked up without `tatami reload-config`.
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!("config dir {}: {e}; hot reload off", dir.display());
         return None;
     }
     let file_name = config_path.file_name()?.to_os_string();

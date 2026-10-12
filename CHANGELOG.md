@@ -62,6 +62,12 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
 - **A floating window left parked by a killed daemon comes back.** Tiled
   strays always did, through the layout; floating ones were adopted where
   they were, one point inside a corner, and stayed there.
+- **Resizing works in a crowded row.** When a row's minimum widths
+  already exceed the monitor (four Electron-style apps on a 1920 px
+  display), every tile was pinned to exactly its minimum and resize did
+  nothing. A tile now gets the larger of its minimum and its weighted
+  share, so growing it makes it wider and it overlaps its neighbours
+  more; everything stays on screen.
 - **Resizing no longer tops out.** Growing a tile took equally from its
   siblings and stopped once the smallest would fall below a tenth of the
   row, so a tile in a row of four could never pass about 70%. The share

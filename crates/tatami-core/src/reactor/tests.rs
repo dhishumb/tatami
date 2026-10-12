@@ -1615,3 +1615,75 @@ fn a_floating_window_parked_by_a_dead_daemon_is_pulled_back() {
         "back on the monitor: {r:?}"
     );
 }
+
+#[test]
+fn resize_keeps_growing_until_the_neighbour_hits_its_minimum() {
+    let (mut t, h) = setup(
+        vec![mon("m1", 0.0)],
+        &[win("com.a", "a", 0.0), win("com.b", "b", 500.0)],
+    );
+    t.focus(h[0]);
+    let mut last = t.frame(h[0]).w;
+    let args: Vec<String> = ["resize", "width", "+100"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    for _ in 0..8 {
+        // Past the sliver the command reports "cannot resize further"; the
+        // width must never go down on the way there.
+        let _ = t.r.handle_request(&args, t.now);
+        t.settle();
+        let w = t.frame(h[0]).w;
+        assert!(w >= last, "shrank: {w} < {last}");
+        last = w;
+    }
+    assert!(
+        last >= W * 0.9,
+        "a should reach nearly the whole row, got {last}"
+    );
+}
+
+#[test]
+fn resize_in_an_overflowing_row_still_grows_the_focused_tile() {
+    // Four minimum widths that exceed the monitor: the row is in overlap
+    // mode. Growing one tile must still make it wider (it overlaps more).
+    let m = MonitorInfo {
+        uuid: "wide".into(),
+        name: "wide".into(),
+        frame: Rect::new(0.0, 0.0, 1920.0, 1080.0),
+        visible: Rect::new(0.0, 0.0, 1920.0, 1080.0),
+        is_main: true,
+    };
+    let (f, h) = fake_with(
+        vec![m],
+        &[
+            win("com.bruno", "Bruno", 0.0),
+            win("com.chrome", "Chrome", 480.0),
+            win("com.claude", "Claude", 960.0),
+            win("com.finder", "Finder", 1440.0),
+        ],
+    );
+    for (i, w) in [700.0, 500.0, 600.0, 485.0].into_iter().enumerate() {
+        f.set_behaviour(
+            h[i],
+            Behaviour {
+                min_size: Some(Size { w, h: 0.0 }),
+                ..Behaviour::default()
+            },
+        );
+    }
+    let mut t = start_logged(f, cfg(), None);
+    t.calls();
+    t.focus(h[1]);
+    let before = t.frame(h[1]).w;
+    for _ in 0..4 {
+        t.ok("resize width +100");
+    }
+    let after = t.frame(h[1]).w;
+    eprintln!("chrome: {before} -> {after}");
+    assert!(after >= before + 300.0, "grew: {before} -> {after}");
+    for &w in &h {
+        let r = t.frame(w);
+        assert!(r.x >= 0.0 && r.right() <= 1920.0, "on screen: {r:?}");
+    }
+}

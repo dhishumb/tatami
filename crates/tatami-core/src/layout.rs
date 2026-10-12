@@ -159,14 +159,12 @@ fn tile_spans(
         }
         return out;
     }
-    // Overflow: minimums only, spaced so the first starts at the left edge
-    // and the last ends at the right edge.
+    // Overflow: each child gets the larger of its minimum and its weighted
+    // share (so a resize still makes a tile wider; it overlaps more), spaced
+    // so the first starts at the left edge and the last ends at the right.
+    let wsum: f64 = weights.iter().sum();
     for i in 0..n {
-        lens[i] = if mins[i] > 0.0 {
-            mins[i]
-        } else {
-            (avail * weights[i] / weights.iter().sum::<f64>()).round()
-        };
+        lens[i] = mins[i].max((avail * weights[i] / wsum).round());
     }
     let total: f64 = lens.iter().sum();
     let last = lens[n - 1];

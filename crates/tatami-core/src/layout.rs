@@ -125,11 +125,11 @@ fn tile_spans(
     if !overflow {
         // Whole points, the last child absorbing the rounding.
         let mut cum = 0.0;
-        for i in 0..n {
+        for (i, len_i) in lens.iter().enumerate() {
             let l = if i + 1 == n {
                 (avail - cum).max(0.0)
             } else {
-                lens[i].round()
+                len_i.round()
             };
             out.push((start + cum + i as f64 * inner, l));
             cum += l;

@@ -222,6 +222,8 @@ pub enum Action {
         dir: Dir,
         wrap: bool,
     },
+    /// `focus --window-id <handle>`: focus that window wherever it is.
+    FocusWindow(u64),
     FocusDfs {
         next: bool,
     },
@@ -344,6 +346,7 @@ struct Flags {
     json: bool,
     all: bool,
     mode: Option<String>,
+    window_id: Option<u64>,
 }
 
 fn take_flags(cmd: &str, rest: &[&str]) -> Result<(Flags, Vec<String>), ActionError> {
@@ -353,6 +356,7 @@ fn take_flags(cmd: &str, rest: &[&str]) -> Result<(Flags, Vec<String>), ActionEr
         json: false,
         all: false,
         mode: None,
+        window_id: None,
     };
     let mut pos = Vec::new();
     let mut i = 0;
@@ -368,6 +372,16 @@ fn take_flags(cmd: &str, rest: &[&str]) -> Result<(Flags, Vec<String>), ActionEr
                     rest.get(i)
                         .ok_or_else(|| usage(cmd, "--mode needs a value"))?
                         .to_string(),
+                );
+            }
+            "--window-id" => {
+                i += 1;
+                let v = rest
+                    .get(i)
+                    .ok_or_else(|| usage(cmd, "--window-id needs a value"))?;
+                f.window_id = Some(
+                    v.parse()
+                        .map_err(|_| usage(cmd, format!("bad window id `{v}`")))?,
                 );
             }
             // AeroSpace flags we accept and ignore so configs port cleanly.
@@ -434,6 +448,7 @@ impl Action {
         }
         let (f, pos) = take_flags(cmd, rest)?;
         Ok(match cmd {
+            "focus" if f.window_id.is_some() => Action::FocusWindow(f.window_id.unwrap_or(0)),
             "focus" => match one(cmd, &pos, "direction")? {
                 "dfs-next" => Action::FocusDfs { next: true },
                 "dfs-prev" => Action::FocusDfs { next: false },
@@ -733,6 +748,7 @@ mod tests {
             }
         );
         assert_eq!(p("focus dfs-next"), Action::FocusDfs { next: true });
+        assert_eq!(p("focus --window-id 4421"), Action::FocusWindow(4421));
         assert_eq!(p("move down"), Action::Move { dir: Dir::Down });
         assert_eq!(
             p("swap up"),

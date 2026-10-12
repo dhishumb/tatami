@@ -1,21 +1,31 @@
 //! The which-key sheet: one borderless, non-activating `NSPanel` holding a
 //! single label. Layout is plain monospaced text built by `compose`, so the
-//! AppKit side is one attributed string and one frame.
+//! AppKit side is one attributed string and one frame. Rows that carry a
+//! command are clickable: the content view maps a click back through the
+//! layout `compose` used and emits `PlatformEvent::Command`.
+
+use std::cell::RefCell;
+use std::rc::Weak;
 
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2::{AnyThread, MainThreadMarker, MainThreadOnly};
+use objc2::{
+    AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send,
+};
 use objc2_app_kit::{
-    NSBackingStoreType, NSColor, NSFont, NSFontAttributeName, NSFontWeightBold,
+    NSBackingStoreType, NSColor, NSEvent, NSFont, NSFontAttributeName, NSFontWeightBold,
     NSFontWeightRegular, NSForegroundColorAttributeName, NSPanel, NSStatusWindowLevel, NSTextField,
-    NSWindowCollectionBehavior, NSWindowStyleMask,
+    NSView, NSWindowCollectionBehavior, NSWindowStyleMask,
 };
 use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
 use objc2_core_graphics::{CGDisplayBounds, CGMainDisplayID};
 use objc2_foundation::{
-    NSAttributedString, NSAttributedStringKey, NSDictionary, NSMutableAttributedString, NSString,
+    NSAttributedString, NSAttributedStringKey, NSDictionary, NSMutableAttributedString,
+    NSObjectProtocol, NSString,
 };
-use tatami_core::{MonitorInfo, OverlayContent};
+use tatami_core::{MonitorInfo, OverlayContent, PlatformEvent};
+
+use crate::Shared;
 
 const FONT_SIZE: CGFloat = 13.0;
 const PAD: CGFloat = 12.0;
@@ -23,6 +33,8 @@ const BOTTOM_GAP: CGFloat = 24.0;
 const ARROW: &str = " → ";
 const GAP: usize = 3;
 const DESC_MAX: usize = 28;
+/// Horizontal padding an `NSTextField` label puts before its text.
+const TEXT_INSET: CGFloat = 2.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Style {
@@ -87,12 +99,38 @@ impl Runs {
     }
 }
 
-/// The sheet as styled text, `cols_chars` wide at most, body at most `max_rows` lines.
+/// Where `compose` put the rows: body line `r + 1` holds `cols[c][r]` in
+/// column `c`, which starts at character `c * (cell + GAP)`.
+#[derive(Default, Debug, PartialEq)]
+pub(crate) struct Layout {
+    cols: Vec<Vec<usize>>,
+    cell: usize,
+}
+
+impl Layout {
+    /// The row index under character `col_char` of text line `line` (0 is the
+    /// header); `None` on the header, a column gap or past the rows.
+    pub(crate) fn row_at(&self, line: usize, col_char: usize) -> Option<usize> {
+        let r = line.checked_sub(1)?;
+        let stride = self.cell + GAP;
+        if col_char % stride >= self.cell {
+            return None;
+        }
+        self.cols.get(col_char / stride)?.get(r).copied()
+    }
+
+    fn lines(&self) -> usize {
+        1 + self.cols.first().map_or(0, Vec::len)
+    }
+}
+
+/// The sheet as styled text, `cols_chars` wide at most, body at most
+/// `max_rows` lines, and where its rows landed.
 pub(crate) fn compose(
     c: &OverlayContent,
     cols_chars: usize,
     max_rows: usize,
-) -> Vec<(Style, String)> {
+) -> (Vec<(Style, String)>, Layout) {
     let key_w = c.rows.iter().map(|r| width(&r.key)).max().unwrap_or(0);
     let desc_w = c
         .rows
@@ -144,25 +182,126 @@ pub(crate) fn compose(
             }
         }
     }
-    out.0
+    (out.0, Layout { cols, cell })
 }
 
 type Attrs = Retained<NSDictionary<NSAttributedStringKey, AnyObject>>;
 
+/// What a click needs: the layout `compose` used, each row's command, and
+/// where the text sits in the view.
+#[derive(Default)]
+struct Hits {
+    layout: Layout,
+    commands: Vec<Vec<String>>,
+    /// The text's top-left corner, in view coordinates (bottom-left origin).
+    top_left: CGPoint,
+    line_h: CGFloat,
+    char_w: CGFloat,
+}
+
+impl Hits {
+    fn command_at(&self, p: CGPoint) -> Option<Vec<String>> {
+        let (dx, dy) = (p.x - self.top_left.x, self.top_left.y - p.y);
+        if dx < 0.0 || dy < 0.0 || self.line_h <= 0.0 || self.char_w <= 0.0 {
+            return None;
+        }
+        let i = self
+            .layout
+            .row_at((dy / self.line_h) as usize, (dx / self.char_w) as usize)?;
+        self.commands.get(i).filter(|c| !c.is_empty()).cloned()
+    }
+}
+
+struct ViewIvars {
+    shared: Weak<Shared>,
+    hits: RefCell<Hits>,
+}
+
+define_class!(
+    // SAFETY: NSView has no subclassing requirements; no `Drop` impl.
+    #[unsafe(super(NSView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "TatamiSheetView"]
+    #[ivars = ViewIvars]
+    struct SheetView;
+
+    // SAFETY: NSObjectProtocol has no safety requirements.
+    unsafe impl NSObjectProtocol for SheetView {}
+
+    impl SheetView {
+        // SAFETY: matches `- (NSView *)hitTest:(NSPoint)point`.
+        // The label is a control and would track the click itself; the sheet takes them all.
+        #[unsafe(method_id(hitTest:))]
+        fn hit_test(&self, p: CGPoint) -> Option<Retained<NSView>> {
+            let f = self.frame();
+            let inside = p.x >= f.origin.x
+                && p.y >= f.origin.y
+                && p.x < f.origin.x + f.size.width
+                && p.y < f.origin.y + f.size.height;
+            inside.then(|| self.retain().into_super())
+        }
+
+        // SAFETY: matches `- (BOOL)acceptsFirstMouse:(NSEvent *)event`.
+        // The panel is never key, so every click is a "first" click.
+        #[unsafe(method(acceptsFirstMouse:))]
+        fn accepts_first_mouse(&self, _event: Option<&NSEvent>) -> bool {
+            true
+        }
+
+        // SAFETY: matches `- (void)mouseDown:(NSEvent *)event`.
+        // Swallowed so it does not travel up the responder chain; the click acts on mouse-up.
+        #[unsafe(method(mouseDown:))]
+        fn mouse_down(&self, _event: &NSEvent) {}
+
+        // SAFETY: matches `- (void)mouseUp:(NSEvent *)event`.
+        #[unsafe(method(mouseUp:))]
+        fn mouse_up(&self, event: &NSEvent) {
+            let p = self.convertPoint_fromView(event.locationInWindow(), None);
+            let iv = self.ivars();
+            // Clone out of the borrow: the sink may re-render the sheet.
+            let cmd = iv.hits.borrow().command_at(p);
+            if let (Some(cmd), Some(sh)) = (cmd, iv.shared.upgrade()) {
+                sh.emit(PlatformEvent::Command(cmd));
+            }
+        }
+    }
+);
+
+impl SheetView {
+    fn new(mtm: MainThreadMarker, shared: Weak<Shared>) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(ViewIvars {
+            shared,
+            hits: RefCell::default(),
+        });
+        let frame = CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(10.0, 10.0));
+        // SAFETY: NSView's designated initializer.
+        unsafe { msg_send![super(this), initWithFrame: frame] }
+    }
+}
+
 struct Sheet {
     panel: Retained<NSPanel>,
+    view: Retained<SheetView>,
     label: Retained<NSTextField>,
     font: Retained<NSFont>,
     attrs: [Attrs; 5],
 }
 
-#[derive(Default)]
 pub(crate) struct Overlay {
+    shared: Weak<Shared>,
     sheet: Option<Sheet>,
     last: Option<(OverlayContent, MonitorInfo)>,
 }
 
 impl Overlay {
+    pub(crate) fn new(shared: Weak<Shared>) -> Self {
+        Self {
+            shared,
+            sheet: None,
+            last: None,
+        }
+    }
+
     pub(crate) fn show(
         &mut self,
         mtm: MainThreadMarker,
@@ -184,7 +323,9 @@ impl Overlay {
         {
             return;
         }
-        let sheet = self.sheet.get_or_insert_with(|| Sheet::new(mtm));
+        let sheet = self
+            .sheet
+            .get_or_insert_with(|| Sheet::new(mtm, self.shared.clone()));
         sheet.render(content, monitor);
         self.last = Some((content.clone(), monitor.clone()));
     }
@@ -199,7 +340,7 @@ fn attrs(font: &NSFont, (r, g, b): (f64, f64, f64)) -> Attrs {
 }
 
 impl Sheet {
-    fn new(mtm: MainThreadMarker) -> Self {
+    fn new(mtm: MainThreadMarker, shared: Weak<Shared>) -> Self {
         let frame = CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(10.0, 10.0));
         let panel = NSPanel::initWithContentRect_styleMask_backing_defer(
             NSPanel::alloc(mtm),
@@ -215,7 +356,12 @@ impl Sheet {
                 | NSWindowCollectionBehavior::Stationary
                 | NSWindowCollectionBehavior::IgnoresCycle,
         );
-        panel.setIgnoresMouseEvents(true);
+        // Clickable but never key: borderless panels refuse key status, and the
+        // non-activating mask keeps a click from activating us.
+        panel.setIgnoresMouseEvents(false);
+        panel.setBecomesKeyOnlyIfNeeded(true);
+        panel.setMovable(false);
+        debug_assert!(!panel.canBecomeKeyWindow());
         panel.setHasShadow(true);
         panel.setOpaque(false);
         // Our app is never active; the default would hide the panel at once.
@@ -231,9 +377,9 @@ impl Sheet {
         label.setSelectable(false);
         label.setBezeled(false);
         label.setDrawsBackground(false);
-        if let Some(view) = panel.contentView() {
-            view.addSubview(&label);
-        }
+        let view = SheetView::new(mtm, shared);
+        panel.setContentView(Some(&view));
+        view.addSubview(&label);
 
         // SAFETY: reading immutable framework constants.
         let (regular, bold) = unsafe { (NSFontWeightRegular, NSFontWeightBold) };
@@ -251,6 +397,7 @@ impl Sheet {
         });
         Self {
             panel,
+            view,
             label,
             font,
             attrs,
@@ -266,7 +413,8 @@ impl Sheet {
         let max_rows = ((vis.h / 3.0 / line_h.max(1.0)) as usize).saturating_sub(1);
 
         let text = NSMutableAttributedString::new();
-        for (style, s) in compose(content, cols_chars, max_rows) {
+        let (runs, layout) = compose(content, cols_chars, max_rows);
+        for (style, s) in runs {
             // SAFETY: the attributes map NSAttributedStringKeys to an NSFont and an NSColor,
             // the value types those keys require.
             let run = unsafe {
@@ -282,6 +430,14 @@ impl Sheet {
         self.label.sizeToFit();
         let size = self.label.frame().size;
         self.label.setFrameOrigin(CGPoint::new(PAD, PAD));
+        *self.view.ivars().hits.borrow_mut() = Hits {
+            // The label insets its text horizontally by the cell's padding.
+            top_left: CGPoint::new(PAD + TEXT_INSET, PAD + size.height),
+            line_h: size.height / layout.lines() as CGFloat,
+            char_w,
+            commands: content.rows.iter().map(|r| r.command.clone()).collect(),
+            layout,
+        };
 
         let (w, h) = (size.width + 2.0 * PAD, size.height + 2.0 * PAD);
         // AX frames are top-left based; AppKit's origin is the primary display's bottom-left.
@@ -323,6 +479,7 @@ mod tests {
             key: key.into(),
             desc: desc.into(),
             prefix,
+            command: Vec::new(),
         }
     }
 
@@ -344,7 +501,7 @@ mod tests {
             max_desc: None,
         };
         // Cell = 3 + 3 + 24 = 30; 63 chars fit two columns.
-        let runs = compose(&c, 63, 10);
+        let (runs, _) = compose(&c, 63, 10);
         let text = plain(&runs);
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines.len(), 3);
@@ -366,9 +523,51 @@ mod tests {
             columns: None,
             max_desc: None,
         };
-        let text = plain(&compose(&c, 200, 10));
+        let text = plain(&compose(&c, 200, 10).0);
         let body = text.lines().nth(1).unwrap();
         assert_eq!(width(body), 1 + 3 + DESC_MAX);
         assert!(body.ends_with('…'));
+    }
+
+    #[test]
+    fn row_at_maps_lines_and_columns_back_to_rows() {
+        let rows: Vec<OverlayRow> = (0..7)
+            .map(|i| row(&format!("k{i}"), &format!("row {i}"), false))
+            .collect();
+        let c = OverlayContent {
+            title: "t".into(),
+            exit_hint: String::new(),
+            rows,
+            columns: Some(3),
+            max_desc: None,
+        };
+        let (runs, layout) = compose(&c, 200, 10);
+        // 7 rows in 3 columns: [0,1,2] [3,4,5] [6].
+        assert_eq!(layout.cols, vec![vec![0, 1, 2], vec![3, 4, 5], vec![6]]);
+        let text = plain(&runs);
+        // Every character of every row's key and description maps to that row.
+        let mut seen = 0;
+        for (line, s) in text.lines().enumerate().skip(1) {
+            for (i, r) in c.rows.iter().enumerate() {
+                let Some(at) = s.find(&r.desc) else { continue };
+                let start = s[..at].chars().count();
+                for x in start..start + width(&r.desc) {
+                    assert_eq!(layout.row_at(line, x), Some(i), "{s:?} at {x}");
+                }
+                let key = s.find(&r.key).map(|b| s[..b].chars().count()).unwrap();
+                assert_eq!(layout.row_at(line, key), Some(i));
+                seen += 1;
+            }
+        }
+        assert_eq!(seen, c.rows.len());
+        // Header, the gaps between columns, below the rows and past the last column.
+        assert_eq!(layout.row_at(0, 0), None);
+        assert_eq!(layout.row_at(1, layout.cell), None);
+        assert_eq!(layout.row_at(1, layout.cell + GAP - 1), None);
+        assert_eq!(layout.row_at(1, layout.cell + GAP), Some(3));
+        assert_eq!(layout.row_at(2, 2 * (layout.cell + GAP)), None);
+        assert_eq!(layout.row_at(4, 0), None);
+        assert_eq!(layout.row_at(1, 3 * (layout.cell + GAP)), None);
+        assert_eq!(layout.lines(), 4);
     }
 }

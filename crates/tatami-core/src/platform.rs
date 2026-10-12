@@ -162,6 +162,9 @@ pub struct OverlayRow {
     pub desc: String,
     /// A row that opens another level, drawn in the second accent.
     pub prefix: bool,
+    /// Run when the row is clicked (as `PlatformEvent::Command`); empty =
+    /// not clickable.
+    pub command: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

@@ -40,6 +40,15 @@ impl<P: Platform> Reactor<P> {
     pub(super) fn run_one(&mut self, a: &Action) -> CmdResult {
         match a {
             Action::Focus { dir, wrap } => self.cmd_focus(*dir, *wrap),
+            Action::FocusWindow(h) => {
+                let id = self
+                    .by_handle
+                    .get(&WindowHandle(*h))
+                    .copied()
+                    .ok_or_else(|| format!("no window {h}"))?;
+                self.focus_window(id);
+                ok()
+            }
             Action::FocusDfs { next } => {
                 // "Next tile" cycles: from the last one, wrap to the first.
                 let (_, leaf) = self.focused_tiled()?;
@@ -239,6 +248,8 @@ impl<P: Platform> Reactor<P> {
                     self.set_overlay(ch);
                 } else {
                     self.overview = true;
+                    self.overview_query = None;
+                    self.overview_sel = 0;
                     self.overview_targets = self.overview_rows().1;
                     let ch = self.keys.pin();
                     self.set_overlay(ch);

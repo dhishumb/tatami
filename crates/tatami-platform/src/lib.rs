@@ -99,12 +99,13 @@ impl MacPlatform {
         });
         observers::set_current(&shared);
         let status = statusbar::Status::new(Rc::downgrade(&shared));
+        let overlay = overlay::Overlay::new(Rc::downgrade(&shared));
         Self {
             mtm,
             shared,
             observing: None,
             key_tap: None,
-            overlay: overlay::Overlay::default(),
+            overlay,
             status,
         }
     }

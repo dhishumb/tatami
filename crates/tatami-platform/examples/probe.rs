@@ -16,6 +16,8 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use objc2::MainThreadMarker;
+use objc2_app_kit::NSApplication;
+use objc2_core_graphics::{CGDisplayBounds, CGMainDisplayID};
 use tatami_core::{
     KeyDisposition, MenuItem, OverlayContent, OverlayRow, Platform, PlatformEvent, RawKeyEvent,
     SetOrder,
@@ -417,6 +419,12 @@ fn sample_sheet() -> OverlayContent {
                 key: k.into(),
                 desc: d.into(),
                 prefix: p,
+                // The first two rows are clickable, like the overview's window rows.
+                command: match k {
+                    "h" => vec!["focus".into(), "left".into()],
+                    "j" => vec!["focus".into(), "down".into()],
+                    _ => Vec::new(),
+                },
             })
             .collect(),
         columns: None,
@@ -424,9 +432,17 @@ fn sample_sheet() -> OverlayContent {
     }
 }
 
+/// Shows the sample sheet; prints its frame (AX coordinates) and the
+/// `Command` of any clicked row, and checks that clicking left focus alone.
 fn overlay(d: Duration) -> Result<(), String> {
     let ml = main_loop();
     let mut p = MacPlatform::new();
+    p.set_event_sink(Box::new(|ev| {
+        if let PlatformEvent::Command(c) = ev {
+            println!("command {c:?}");
+        }
+    }));
+    let front = tatami_platform::apps::front_window();
     let main = p
         .screens()
         .into_iter()
@@ -450,7 +466,31 @@ fn overlay(d: Duration) -> Result<(), String> {
         main.name,
         fmt_rect(&main.visible),
     );
+    let mtm = MainThreadMarker::new().expect("main thread");
+    let app = NSApplication::sharedApplication(mtm);
+    let main_h = CGDisplayBounds(CGMainDisplayID()).size.height;
+    for w in app.windows().iter().filter(|w| w.isVisible()) {
+        let f = w.frame();
+        let ax = Rect::new(
+            f.origin.x,
+            main_h - f.origin.y - f.size.height,
+            f.size.width,
+            f.size.height,
+        );
+        println!(
+            "panel {} canBecomeKey={} ignoresMouse={}; listening {d:?}",
+            fmt_rect(&ax),
+            w.canBecomeKeyWindow(),
+            w.ignoresMouseEvents()
+        );
+    }
     run_for(ml, d);
+    println!(
+        "front window (pid, id) before {front:?}, after {:?}; we are active={} key window={}",
+        tatami_platform::apps::front_window(),
+        app.isActive(),
+        app.keyWindow().is_some()
+    );
     p.show_overlay(None, &main);
     println!("hidden");
     Ok(())

@@ -1807,3 +1807,84 @@ fn a_letter_on_the_overview_focuses_that_window_anywhere() {
     t.drain();
     assert!(!t.r.overview);
 }
+
+#[test]
+fn overview_search_filters_and_enter_focuses_the_highlighted_match() {
+    let (mut t, h) = setup(
+        vec![mon("m1", 0.0), mon("m2", W)],
+        &[
+            win("com.a", "alpha notes", 0.0),
+            win("com.b", "beta", W + 10.0),
+            win("com.c", "gamma", W + 400.0),
+        ],
+    );
+    t.focus(h[0]);
+    t.ok("overview");
+    let down = |code: u16| RawKeyEvent::Down {
+        keycode: code,
+        mods: Mods::default(),
+        repeat: false,
+    };
+    // `/` (keycode 44) starts the search; `g` (5) narrows to gamma.
+    assert_eq!(t.key(down(44)), KeyDisposition::Swallow);
+    assert_eq!(t.key(down(5)), KeyDisposition::Swallow);
+    t.drain();
+    let (rows, targets) = t.r.overview_rows();
+    assert_eq!(targets, vec![t.r.by_handle[&h[2]]], "only gamma matches");
+    assert!(
+        rows.iter()
+            .any(|r| r.key == "▶" && r.desc.contains("gamma")),
+        "{rows:?}"
+    );
+    assert!(!rows.iter().any(|r| r.desc.contains("alpha")), "{rows:?}");
+    assert!(
+        rows.iter().all(|r| !r.desc.contains("Display m1")),
+        "a monitor with no match has no header: {rows:?}"
+    );
+    // Backspace to an empty query keeps search mode; one more leaves it.
+    assert_eq!(t.key(down(51)), KeyDisposition::Swallow);
+    assert!(t.r.overview_query.as_deref() == Some(""));
+    assert_eq!(t.r.overview_rows().1.len(), 3);
+    // ↓ (125) moves the highlight to beta; Enter (36) focuses it.
+    assert_eq!(t.key(down(125)), KeyDisposition::Swallow);
+    assert_eq!(t.key(down(36)), KeyDisposition::Swallow);
+    t.drain();
+    assert!(!t.r.overview);
+    assert_eq!(t.r.focused, Some(t.r.by_handle[&h[1]]));
+}
+
+#[test]
+fn overview_rows_carry_a_focus_command_and_open_on_the_main_monitor() {
+    let (mut t, h) = setup(
+        vec![mon("m1", 0.0), mon("m2", W)],
+        &[win("com.a", "a", 0.0), win("com.b", "b", W + 10.0)],
+    );
+    t.fake().set_mouse(tatami_protocol::Point {
+        x: W + 100.0,
+        y: 100.0,
+    });
+    t.ok("overview");
+    let (rows, _) = t.r.overview_rows();
+    let cmd = &rows.iter().find(|r| r.desc.contains('b')).unwrap().command;
+    assert_eq!(
+        cmd,
+        &[
+            "focus".to_string(),
+            "--window-id".into(),
+            h[1].0.to_string()
+        ]
+    );
+    // The click arrives as a Command and focuses the window.
+    t.event(PlatformEvent::Command(cmd.clone()));
+    assert_eq!(t.r.focused, Some(t.r.by_handle[&h[1]]));
+    // The sheet went to the main monitor (m1), not the pointer's (m2).
+    let shown_on = t
+        .calls()
+        .into_iter()
+        .filter_map(|c| match c {
+            FakeCall::OverlayOn(uuid) => Some(uuid),
+            _ => None,
+        })
+        .last();
+    assert_eq!(shown_on.as_deref(), Some("m1"), "overlay monitor");
+}

@@ -41,6 +41,8 @@ pub enum FakeCall {
     Menu(usize),
     /// Title of the overlay shown, `None` when hidden.
     Overlay(Option<String>),
+    /// Uuid of the monitor a sheet was shown on.
+    OverlayOn(String),
     Status(String),
 }
 
@@ -342,11 +344,12 @@ impl Platform for FakePlatform {
         Ok(())
     }
 
-    fn show_overlay(&mut self, content: Option<&OverlayContent>, _monitor: &MonitorInfo) {
-        self.st
-            .get_mut()
-            .calls
-            .push(FakeCall::Overlay(content.map(|c| c.title.clone())));
+    fn show_overlay(&mut self, content: Option<&OverlayContent>, monitor: &MonitorInfo) {
+        let calls = &mut self.st.get_mut().calls;
+        calls.push(FakeCall::Overlay(content.map(|c| c.title.clone())));
+        if content.is_some() {
+            calls.push(FakeCall::OverlayOn(monitor.uuid.clone()));
+        }
     }
 
     fn set_status(&mut self, text: &str) {

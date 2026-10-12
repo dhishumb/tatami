@@ -465,6 +465,7 @@ pub fn command_words(a: &Action) -> String {
         Action::FlattenWorkspaceTree => "flatten-workspace-tree".into(),
         Action::JoinWith(d) => format!("join-with {d}"),
         Action::Flip => "flip".to_string(),
+        Action::FocusWindow(h) => format!("focus --window-id {h}"),
         Action::Overview => "overview".to_string(),
         Action::Split(s) => format!(
             "split {}",

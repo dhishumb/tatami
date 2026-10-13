@@ -298,6 +298,12 @@ fn creator<'a>(
 pub(crate) enum OverviewItem {
     Monitor(MonitorId),
     Window(WindowId),
+    /// A binding listed by a search: the chord in the mode (an index into
+    /// `Keymap::modes`, `None` for a direct chord); Enter runs it.
+    Key {
+        mode: Option<usize>,
+        chord: KeyChord,
+    },
 }
 
 /// Letters for the overview's windows: `a`…`z` then `A`…`Z`.
@@ -315,6 +321,17 @@ fn overview_index(c: char) -> Option<usize> {
         'A'..='Z' => Some(26 + c as usize - 'A' as usize),
         _ => None,
     }
+}
+
+/// A key row matches when a word of its text (chord, command, mode; `-`
+/// and `+` split words too) starts with the query, or the text contains a
+/// multi-word query (`workspace 3`). Windows match on any substring; keys
+/// are short words, where `g` matching `toggle` is noise.
+fn key_text_matches(text: &str, q: &str) -> bool {
+    if q.contains(' ') {
+        return text.contains(q);
+    }
+    text.split([' ', '-', '+']).any(|w| w.starts_with(q))
 }
 
 fn fit_into(r: Rect, area: &Rect) -> Rect {
@@ -869,9 +886,9 @@ impl<P: Platform> Reactor<P> {
     /// expands the highlighted monitor and `←` collapses it (from a window
     /// too), Enter focuses the window (or toggles the monitor); a letter
     /// picks its window directly, `1`-`9` expand monitor N. `/` (or space)
-    /// starts a search over every monitor; typing filters, Backspace
-    /// edits. Esc closes; any other key closes it and goes on as a normal
-    /// key.
+    /// starts a search over every monitor and over the keymap; typing
+    /// filters, Backspace edits, Enter on a key row runs that binding. Esc
+    /// closes; any other key closes it and goes on as a normal key.
     fn overview_key(&mut self, keycode: u16, mods: Mods, now: Instant) -> KeyDisposition {
         let key = keyname_from_keycode(keycode);
         let close = |r: &mut Self| {
@@ -907,7 +924,7 @@ impl<P: Platform> Reactor<P> {
                 let m = match current {
                     Some(OverviewItem::Monitor(m)) => Some(m),
                     Some(OverviewItem::Window(w)) => Some(self.ws_monitor(self.wins[w].ws)),
-                    None => None,
+                    Some(OverviewItem::Key { .. }) | None => None,
                 };
                 if let Some(m) = m {
                     self.overview_open.retain(|&o| o != m);
@@ -937,7 +954,7 @@ impl<P: Platform> Reactor<P> {
                         .iter()
                         .filter_map(|it| match it {
                             OverviewItem::Window(w) => Some(*w),
-                            OverviewItem::Monitor(_) => None,
+                            _ => None,
                         })
                         .nth(i)
                 });
@@ -964,6 +981,14 @@ impl<P: Platform> Reactor<P> {
                             self.overview_open.push(m);
                         }
                         rebuild(self, current);
+                    }
+                    // The binding runs as if its chord had been pressed:
+                    // the queue takes the whole list, mode changes
+                    // included, and `drain` runs it after the sheet is gone.
+                    Some(OverviewItem::Key { mode, chord }) => {
+                        let actions = self.overview_binding(mode, &chord);
+                        close(self);
+                        self.key_queue.extend(actions);
                     }
                     None => close(self),
                 }
@@ -1022,12 +1047,72 @@ impl<P: Platform> Reactor<P> {
         }
     }
 
+    /// What a key row's binding does, as a list to queue.
+    fn overview_binding(&self, mode: Option<usize>, chord: &KeyChord) -> Vec<Action> {
+        let found = match mode {
+            None => self.keymap.lookup_direct(chord),
+            Some(i) => self
+                .keymap
+                .modes()
+                .get(i)
+                .and_then(|m| self.keymap.lookup_mode(m, chord)),
+        };
+        found.map(<[Action]>::to_vec).unwrap_or_default()
+    }
+
+    /// The bindings a search for `q` (lowercase) turns up, direct chords
+    /// first then each mode's: the chord as you would press it (`alt+s u`
+    /// for a key inside a mode), what it does, and where it lives. A
+    /// match is on the start of any of those words (`key_text_matches`),
+    /// so `service` lists the whole `alt+s` mode, `swap` finds `hot-swap`
+    /// and `h` the keys on `h`, while a letter inside a word stays quiet.
+    /// `Esc`/`Enter` → normal in every mode is chrome and left out.
+    fn overview_keys(&self, q: &str) -> Vec<(String, String, Option<usize>, KeyChord)> {
+        let modes = self.keymap.modes();
+        let mut out = Vec::new();
+        for (mode, chord, actions) in self.keymap.bindings() {
+            if actions.iter().all(|a| matches!(a, Action::Normal)) {
+                continue;
+            }
+            let mode_i = mode.and_then(|m| modes.iter().position(|n| n == m));
+            if mode.is_some() && mode_i.is_none() {
+                continue;
+            }
+            let mut words = String::new();
+            if let Some(m) = mode {
+                let path = self.keymap.mode_path(m);
+                if path.is_empty() {
+                    // A mode nothing binds (entered from the CLI).
+                    words.push('+');
+                    words.push_str(m);
+                    words.push(' ');
+                }
+                for c in path {
+                    words.push_str(&c.display_relative(tatami_keymap::Mods::NONE));
+                    words.push(' ');
+                }
+            }
+            words.push_str(&chord.display_relative(tatami_keymap::Mods::NONE));
+            let desc = self.keymap.describe(actions);
+            let mut hay = format!("{words} {desc} {}", mode.unwrap_or(""));
+            for a in actions {
+                hay.push(' ');
+                hay.push_str(&tatami_config::command_words(a));
+            }
+            if key_text_matches(&hay.to_lowercase(), q) {
+                out.push((words, desc, mode_i, *chord));
+            }
+        }
+        out
+    }
+
     /// The desk as an outline: every monitor (left to right) as a header,
     /// and under each expanded one its workspaces (visible one starred)
     /// with one lettered row per window. While searching every monitor is
     /// searched, only matching windows are listed and the highlighted one
-    /// is marked. Returns the rows and the items the highlight can rest
-    /// on, in order.
+    /// is marked, and a `keys` section below lists the bindings the text
+    /// matches. Returns the rows and the items the highlight can rest on,
+    /// in order.
     fn overview_rows(&self) -> (Vec<OverlayRow>, Vec<OverviewItem>) {
         let mons = self.monitors_left_to_right();
         let query = self.overview_query.as_deref().map(str::to_lowercase);
@@ -1148,6 +1233,53 @@ impl<P: Platform> Reactor<P> {
                 rows.truncate(header_at);
             }
         }
+        // The keymap, once there is text to match: an empty search is the
+        // whole desk, not every key as well (`alt+/` is the key sheet).
+        if let Some(q) = query.as_deref().filter(|q| !q.is_empty()) {
+            let keys = self.overview_keys(q);
+            let width = keys.iter().map(|k| k.0.chars().count()).max();
+            if let Some(width) = width {
+                if !rows.is_empty() {
+                    rows.push(OverlayRow {
+                        key: String::new(),
+                        desc: String::new(),
+                        prefix: true,
+                        command: Vec::new(),
+                    });
+                }
+                rows.push(OverlayRow {
+                    key: "▾".into(),
+                    desc: format!("  keys  ({})", keys.len()),
+                    prefix: true,
+                    command: Vec::new(),
+                });
+                for (words, desc, mode_i, chord) in keys {
+                    let sel = if items.len() == self.overview_sel {
+                        "  ▶ "
+                    } else {
+                        "    "
+                    };
+                    let mut command = vec![
+                        "trigger-binding".to_string(),
+                        chord.display_relative(tatami_keymap::Mods::NONE),
+                    ];
+                    if let Some(m) = mode_i.and_then(|i| self.keymap.modes().get(i)) {
+                        command.push("--mode".into());
+                        command.push(m.clone());
+                    }
+                    rows.push(OverlayRow {
+                        key: String::new(),
+                        desc: format!("{sel}{words:<width$}  {desc}"),
+                        prefix: false,
+                        command,
+                    });
+                    items.push(OverviewItem::Key {
+                        mode: mode_i,
+                        chord,
+                    });
+                }
+            }
+        }
         (rows, items)
     }
 
@@ -1216,8 +1348,10 @@ impl<P: Platform> Reactor<P> {
     fn overview_content(&self) -> OverlayContent {
         let (rows, items) = self.overview_rows();
         let title = match &self.overview_query {
-            None => "desk  ·  ↑↓ move  → open  ← close  ·  Enter or letter: focus  ·  / search"
-                .to_string(),
+            None => {
+                "desk  ·  ↑↓ move  → open  ← close  ·  Enter or letter: focus  ·  / search windows and keys"
+                    .to_string()
+            }
             Some(q) => format!(
                 "search: {q}  ({} match{})",
                 items.len(),

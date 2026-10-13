@@ -1973,6 +1973,80 @@ fn overview_search_filters_the_windows_and_enter_focuses_the_highlighted_match()
 }
 
 #[test]
+fn overview_search_lists_matching_keys_and_enter_runs_the_binding() {
+    let (mut t, h) = setup(vec![mon("m1", 0.0)], &[win("com.a", "alpha", 0.0)]);
+    t.focus(h[0]);
+    t.ok("overview");
+    let down = |code: u16| RawKeyEvent::Down {
+        keycode: code,
+        mods: Mods::default(),
+        repeat: false,
+    };
+    let chord = |s: &str| tatami_keymap::KeyChord::parse(s).unwrap();
+    // `/` (44) then `hot` (4, 31, 17): no window matches; the service
+    // mode's `u` does, shown as the keys you would press.
+    for k in [44, 4, 31, 17] {
+        assert_eq!(t.key(down(k)), KeyDisposition::Swallow);
+    }
+    let (rows, items) = t.r.overview_rows();
+    let service = t.r.keymap.modes().iter().position(|m| m == "service");
+    assert!(service.is_some());
+    assert_eq!(
+        items,
+        vec![OverviewItem::Key {
+            mode: service,
+            chord: chord("u"),
+        }]
+    );
+    let row = rows
+        .iter()
+        .find(|r| r.desc.contains("hot-swap"))
+        .expect("a key row");
+    assert!(row.desc.starts_with("  ▶ alt+s u"), "{row:?}");
+    assert_eq!(row.command, ["trigger-binding", "u", "--mode", "service"]);
+    assert!(
+        rows.iter().any(|r| r.desc.contains("keys  (1)")),
+        "{rows:?}"
+    );
+    // Enter (36) runs it as the chord would, once the sheet is gone.
+    assert_eq!(t.key(down(36)), KeyDisposition::Swallow);
+    t.drain();
+    assert!(!t.r.overview);
+    assert!(t.out.contains(&Outcome::HotSwap), "{:?}", t.out);
+
+    // A mode's name finds the chord that opens it and the keys inside it;
+    // Enter on the opener enters the mode.
+    t.ok("overview");
+    for k in [44, 15, 14, 1, 34, 6, 14] {
+        t.key(down(k)); // `/resize`
+    }
+    let (_, items) = t.r.overview_rows();
+    let opener = OverviewItem::Key {
+        mode: None,
+        chord: chord("alt+r"),
+    };
+    let at = items
+        .iter()
+        .position(|&i| i == opener)
+        .expect("alt+r listed");
+    let resize = t.r.keymap.modes().iter().position(|m| m == "resize");
+    assert!(
+        items.contains(&OverviewItem::Key {
+            mode: resize,
+            chord: chord("h"),
+        }),
+        "{items:?}"
+    );
+    for _ in 0..at {
+        t.key(down(125)); // ↓
+    }
+    assert_eq!(t.key(down(36)), KeyDisposition::Swallow);
+    t.drain();
+    assert!(!t.r.overview);
+    assert_eq!(t.r.keys.mode(), Some("resize"));
+}
+
+#[test]
 fn overview_window_rows_carry_a_focus_command_for_clicks() {
     let (mut t, h) = setup(
         vec![mon("m1", 0.0)],

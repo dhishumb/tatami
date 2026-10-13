@@ -282,6 +282,14 @@ workspaces (visible one starred) and one line per window with a letter
   type, and the list narrows to windows whose app, title, workspace or
   monitor contains the text; `↑`/`↓` and `Enter` work the same, Backspace
   edits (past an empty search you're back to the outline).
+- The same search looks through your keys. Below the windows a `keys`
+  section lists every binding whose chord, command or mode starts a word
+  with the text: `swap` finds `alt+s u  hot-swap`, `resize` the `alt+r`
+  mode and each key inside it, `h` everything on the `h` key. A key
+  inside a mode is shown as you would press it (`alt+s u`). `Enter` on a
+  key row runs the binding as if you had pressed it (a mode opener enters
+  the mode). It is the command palette for the chord you forgot; `alt+/`
+  is the sheet for browsing them.
 - `Esc` or `alt+o` closes; any other chord closes it and runs as usual.
 
 Lines and headers can also be clicked, but nothing needs the mouse. This is

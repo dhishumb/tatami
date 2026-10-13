@@ -27,6 +27,12 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
   visible one. Tiling is a move into another window's workspace
   (`alt+shift+N`, `alt+m N`). `new_window = "tile"` under `[workspaces]`
   keeps i3's open-beside-the-focused-tile behaviour.
+- **The overview searches your keys too.** Forgetting a chord meant
+  `alt+/` and reading. In the overview's search (`alt+o` `/`), the text
+  now also matches bindings by chord, command or mode, listed under
+  `keys` as you would press them (`alt+s u  hot-swap`), and `Enter` on
+  one runs it. Keys match on word starts, so `h` lists what the `h` key
+  does and a stray letter inside a word stays quiet.
 - **The overview is an outline.** Monitor tabs switched with `←`/`→`
   put the arrows at odds with each other; now `↑`/`↓` walk one list of
   monitor headers and windows, `→` expands the highlighted monitor, `←`

@@ -16,9 +16,10 @@
 #             changes.
 #
 # A running tatamid is touched only when its binary changed, and then it
-# is hot-swapped: `tatami hot-swap` makes the daemon exec the new binary
-# over itself (same pid, same socket, no window moves; the installer waits
-# for the new image's `ok` in swap-status next to the socket). A daemon
+# is hot-swapped: `tatami hot-swap` makes the daemon start the new binary
+# and hand it the socket and the layout (a new pid, same socket, no window
+# moves; the installer waits for the new daemon's `ok` in swap-status
+# next to the socket, and the old one exits on that). A daemon
 # from before hot swap, or a swap that fails, gets the cold restart:
 # `tatami quit` saves the layout and un-parks every window, then launchd
 # (or this script) starts the new build, which puts every window back
@@ -271,7 +272,7 @@ hot_swap_daemon() {
         if [[ -s "$status" ]]; then
             read -r line < "$status"
             case "$line" in
-                ok*) ok "hot-swapped the running daemon to tatamid ${line#ok } (same pid $pid, no window moved)"; return 0 ;;
+                ok*) ok "hot-swapped the running daemon to tatamid ${line#ok } (pid $pid → $(pgrep -x tatamid | tail -1), no window moved)"; return 0 ;;
                 *)   warn "hot swap failed: ${line#failed }"; return 1 ;;
             esac
         fi

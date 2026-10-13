@@ -39,11 +39,15 @@ a failing exit would have launchd respawn it every ten seconds.
 
 ### Daemon upgrade (hot swap)
 
-The daemon replaces its own code in place (`tatamid/src/main.rs`
-`hot_swap`, manifest in `handoff.rs`): same pid, so launchd sees one
-process; the Accessibility grant, keyed to the signing identity,
-carries over; no window moves and hidden workspaces stay parked. Three
-triggers share the path: `SIGUSR1` (no socket needed), the `hot-swap`
+The daemon hands over to the `tatamid` on disk (`tatamid/src/main.rs`
+`hot_swap`, manifest in `handoff.rs`): a new process on the same
+socket; the Accessibility grant, keyed to the signing identity, carries
+over; no window moves and hidden workspaces stay parked. It is a spawn,
+not an `exec` over the running process: macOS never shows a menu bar
+item to a process that exec'd itself (verified with a two-line AppKit
+program: the item created after `execv` is simply absent), so an exec
+would cost the status item until the next cold start. Three triggers
+share the path: `SIGUSR1` (no socket needed), the `hot-swap`
 command (`tatami hot-swap`, `alt+s u`, the menu; it answers first and
 swaps on the next run-loop pass so the reply gets out), and the
 installer, which uses the command and falls back to a cold restart.
@@ -55,25 +59,29 @@ installer, which uses the command and falls back to a cold restart.
    socket, mode 0600, whole-file rename): format, version, the `enable`
    flag and the layout as a `SavedState`, so a disabled `restore` does
    not lose it.
-3. `exec` of the same path with `--adopt <manifest>`, the listening
-   socket as standard input (`Stdio::from(OwnedFd)`: the dup drops
-   close-on-exec, every other descriptor closes). All safe std:
-   `CommandExt::exec`, `UnixListener::from(OwnedFd)`. The socket keeps
-   listening across the exec, so a `tatami` sent meanwhile waits in the
-   backlog instead of being refused.
-4. The new image reads and deletes the manifest, adopts the listener
+3. The same path is spawned with `--adopt <manifest>`, the listening
+   socket as its standard input (`Stdio::from(OwnedFd)`), the log
+   inherited, in its own process group (`CommandExt::process_group`) so
+   a launchd-run parent's exit does not take it along. All safe std.
+   From this moment the old daemon is frozen (`handing_over`): `step`
+   returns at once, the key tap passes every key through, requests are
+   answered "a hot swap is in progress". A watcher thread polls
+   `swap-status` and the child.
+4. The new daemon reads and deletes the manifest, adopts the listener
    from standard input after checking it is bound to the socket path,
    runs the ordinary start-up with the manifest's layout in place of
    `state.json` (the restore matcher finds every window by pid and
-   window id), re-creates the AX observers, event tap and menu bar item
-   (the old ones died with the old image's window-server connection),
-   and writes `ok <version>` to `swap-status`.
+   window id), creates its own AX observers, event tap and menu bar
+   item, and writes `ok <version>` to `swap-status`.
+5. On `ok` the old daemon exits with `process::exit(0)`: no save, no
+   un-park, no socket removal, since all of it is the new daemon's now
+   (and exit 0 keeps launchd from restarting the job). On `failed`, a
+   child that exited, or fifteen seconds of silence, the child is killed,
+   the manifest removed, `swap-status` says why, and the old daemon
+   resumes with a rescan and relayout.
 
-If anything fails before the exec returns, the manifest is removed,
-`swap-status` says `failed <why>` and the old image keeps serving. The
-gap: signal handlers reset across `exec`, so a second signal arriving
-before the new image installs its own takes the default action; the
-installer sends one.
+The pid changes, so a `kill -USR1` needs a fresh `pgrep`; the socket
+and the state files do not.
 
 `tatami` is a thin client: argv goes to the daemon as one `Request`,
 untouched, and is parsed by the same `Action` parser the keymap uses,

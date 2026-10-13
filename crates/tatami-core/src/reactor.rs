@@ -52,7 +52,7 @@ pub enum Outcome {
     Exec(String),
     Exit,
     ReloadConfig,
-    /// `hot-swap`: exec the `tatamid` on disk over this process.
+    /// `hot-swap`: hand over to the `tatamid` on disk (a new process).
     HotSwap,
     /// `edit-config`: the daemon writes the template if needed and opens
     /// the file with this command (`general.editor`; empty = TextEdit).
@@ -594,6 +594,12 @@ impl<P: Platform> Reactor<P> {
                     let ch = self.keys.focus_lost();
                     self.set_overlay(ch);
                 } else if !was && self.enabled {
+                    // A restore that waited for trust gets its full
+                    // timeout from now.
+                    let d = self.now + Duration::from_secs(self.cfg.restore.timeout_s);
+                    if let Some(s) = self.restore.as_mut() {
+                        s.restart_clock(d);
+                    }
                     self.rescan();
                     self.relayout_all();
                 }
@@ -743,7 +749,13 @@ impl<P: Platform> Reactor<P> {
 
     pub fn next_due(&self) -> Option<Instant> {
         let tx = self.txs.iter().map(|t| t.deadline).min();
-        let rs = self.restore.as_ref().and_then(|s| s.next_deadline());
+        // No restore clock without trust (`expire_restore` would not act
+        // on it, and a due-but-ignored deadline would spin the timer).
+        let rs = self
+            .restore
+            .as_ref()
+            .filter(|_| self.trusted)
+            .and_then(|s| s.next_deadline());
         let fl = self.flash.as_ref().map(|(_, t)| *t);
         let dr = self.drag.map(|(_, t)| t);
         [self.keys.due(), tx, rs, fl, dr, Some(self.next_app_scan)]
@@ -774,6 +786,15 @@ impl<P: Platform> Reactor<P> {
         self.resolve_forced();
         self.relayout_all();
         self.status_dirty = true;
+        self.finish()
+    }
+
+    /// After a failed handover: whatever the other daemon moved before
+    /// it gave up, put back.
+    pub fn resume(&mut self, now: Instant) -> Vec<Outcome> {
+        self.now = now;
+        self.rescan();
+        self.relayout_all();
         self.finish()
     }
 

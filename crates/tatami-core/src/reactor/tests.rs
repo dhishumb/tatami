@@ -1163,6 +1163,49 @@ fn snapshot_then_restore_reproduces_order_layouts_and_weights() {
 }
 
 #[test]
+fn a_restore_waits_for_trust_before_giving_up() {
+    // A saved layout with a window of an app that is not running, loaded
+    // by a daemon without Accessibility: the slot must wait for trust,
+    // then get the full timeout.
+    let (t, _) = setup(vec![mon("m1", 0.0)], &[win("com.a", "a", 0.0)]);
+    let mut saved = t.r.snapshot();
+    let SavedNode::Container { children, .. } = &mut saved.monitors[0].workspaces[0].root else {
+        panic!("root is a container");
+    };
+    let mut ghost = children[0].clone();
+    if let SavedNode::Window { window, .. } = &mut ghost {
+        window.bundle_id = Some("com.gone".into());
+        window.app = "Gone".into();
+        window.pid = None;
+        window.cg_id = None;
+    }
+    children.push(ghost);
+    let (f, _) = fake_with(vec![mon("m1", 0.0)], &[win("com.a", "a", 0.0)]);
+    let mut t = start(f, cfg(), Some(saved));
+    assert!(t.r.restore.is_some(), "the ghost's slot is pending");
+    t.event(PlatformEvent::TrustChanged(false));
+    t.now += Duration::from_secs(120);
+    let o = t.r.on_timer(t.now);
+    t.out.extend(o);
+    t.settle();
+    assert!(
+        t.r.restore.is_some(),
+        "untrusted: nothing seen yet, keep waiting"
+    );
+    t.event(PlatformEvent::TrustChanged(true));
+    t.now += Duration::from_secs(30);
+    let o = t.r.on_timer(t.now);
+    t.out.extend(o);
+    t.settle();
+    assert!(t.r.restore.is_some(), "the clock started at trust");
+    t.now += Duration::from_secs(40);
+    let o = t.r.on_timer(t.now);
+    t.out.extend(o);
+    t.settle();
+    assert!(t.r.restore.is_none(), "given up after the full timeout");
+}
+
+#[test]
 fn live_restore_reslots_existing_windows() {
     let (mut t, h) = setup(
         vec![mon("m1", 0.0)],

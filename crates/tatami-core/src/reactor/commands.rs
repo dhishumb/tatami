@@ -348,7 +348,7 @@ impl<P: Platform> Reactor<P> {
             Action::HotSwap => {
                 self.out.push(Outcome::HotSwap);
                 Ok(Reply::text(
-                    "swapping to the installed tatamid in place (same pid)",
+                    "handing over to the installed tatamid (new process, same socket)",
                 ))
             }
             Action::Ping => Ok(Reply {

@@ -55,6 +55,13 @@ impl RestoreSession {
     }
 
     /// `from` was merged into `into`.
+    /// Every pending app gets until `deadline` (trust just arrived).
+    pub(super) fn restart_clock(&mut self, deadline: Instant) {
+        for v in self.deadlines.values_mut() {
+            *v = deadline;
+        }
+    }
+
     pub(super) fn retarget(&mut self, from: WorkspaceId, into: WorkspaceId) {
         for s in self.specs.values_mut() {
             if s.ws == from {
@@ -588,6 +595,11 @@ impl<P: Platform> Reactor<P> {
 
     /// Prune the placeholders of apps whose deadline passed.
     pub(super) fn expire_restore(&mut self) {
+        // Without Accessibility nothing has been seen yet; the clock
+        // starts when trust arrives (`TrustChanged`), not before.
+        if !self.trusted {
+            return;
+        }
         let now = self.now;
         let Some(s) = self.restore.as_mut() else {
             return;

@@ -1,12 +1,12 @@
-//! The handoff: what one tatamid image tells the next across `execv`.
+//! The handoff: what one tatamid tells the next.
 //!
-//! A hot swap replaces the running daemon with the `tatamid` on disk under
-//! the same pid, so launchd sees one long-lived process, no window moves
-//! (parked ones stay parked) and the Accessibility grant, keyed to the
-//! signing identity, carries over. Two things cross the exec: the
-//! listening socket, as the new image's standard input (the kernel queues
-//! clients in its backlog meanwhile, so `tatami` never sees a refusal),
-//! and this manifest, written next to the socket and named on the command
+//! A hot swap starts the `tatamid` on disk as a new process and hands it
+//! the socket and the layout; the old one exits once the new one serves.
+//! No window moves (parked ones stay parked) and the Accessibility grant,
+//! keyed to the signing identity, carries over. Not an `exec`: a process
+//! that exec'd itself never gets a menu bar item from macOS. Two things
+//! cross: the listening socket, as the new daemon's standard input, and
+//! this manifest, written next to the socket and named on the command
 //! line (`--adopt <path>`). The manifest carries the layout, as a
 //! `SavedState`, because a disabled `restore` must not lose it, and the
 //! `enable` flag. Window identity crosses on its own: the restore matcher

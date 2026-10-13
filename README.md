@@ -36,7 +36,7 @@ Privacy & Security → Accessibility and run `tatami service restart`. The
 binaries are signed with a self-signed identity created once in your login
 keychain, so that grant survives upgrades. `scripts/install.sh --upgrade`
 reinstalls the binaries and hot-swaps the running daemon onto the new
-build: same pid, same socket, no window moves (`tatami hot-swap` or
+build: a new process on the same socket, no window moves (`tatami hot-swap` or
 `alt+s u` does it by hand). The daemon starts at login; `tatami quit`
 stays quit (launchd only restarts a crash) and the menu bar item or
 `tatami service enable|disable` toggles start at login. See the script

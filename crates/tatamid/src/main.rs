@@ -46,8 +46,11 @@ pub enum MainMsg {
     Ipc(IpcMsg),
     ReloadConfig,
     Shutdown(String),
-    /// Replace this process with the `tatamid` on disk (the reason, for the log).
+    /// Hand over to the `tatamid` on disk (the reason, for the log).
     HotSwap(String),
+    /// The handover's watcher thread: the new daemon's version, or why
+    /// it never came up (this one then resumes).
+    SwapResult(Result<String, String>),
 }
 
 impl From<IpcMsg> for MainMsg {
@@ -61,6 +64,8 @@ struct Daemon {
     main_loop: MainLoop,
     ipc: ipc::IpcServer,
     rx: Receiver<MainMsg>,
+    /// For threads we start ourselves (the handover watcher).
+    tx: Sender<MainMsg>,
     /// Platform events queued by callbacks while the daemon was busy.
     pending: Rc<RefCell<VecDeque<PlatformEvent>>>,
     subscribers: Vec<(Vec<String>, Sender<IpcEvent>)>,
@@ -74,9 +79,15 @@ struct Daemon {
     want_reload: bool,
     want_exit: bool,
     want_swap: bool,
+    /// A new tatamid is starting with our socket and layout: nothing is
+    /// touched until it says `ok` (we exit) or fails (we resume).
+    handing_over: bool,
     main_loop_stopped: bool,
     _watcher: Option<watch::ConfigWatcher>,
 }
+
+/// How long the old daemon waits for the new one's `ok`.
+const HANDOVER_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn main() {
     init_logging();
@@ -123,8 +134,9 @@ fn main() {
     let saved = match manifest {
         Some(m) => {
             tracing::info!(
-                "hot swap: tatamid {} → {VERSION}, same pid, {} windows in the manifest",
+                "hot swap: tatamid {} → {VERSION}, pid {}, {} windows in the manifest",
                 m.version,
+                std::process::id(),
                 m.state.window_count()
             );
             enabled = m.enabled;
@@ -226,6 +238,7 @@ fn main() {
         main_loop: main_loop.clone(),
         ipc,
         rx,
+        tx: tx.clone(),
         pending: pending.clone(),
         subscribers: Vec::new(),
         config_path,
@@ -237,6 +250,7 @@ fn main() {
         want_reload: false,
         want_exit: false,
         want_swap: false,
+        handing_over: false,
         main_loop_stopped: false,
         _watcher: watcher,
     }));
@@ -352,6 +366,11 @@ where
         tracing::warn!("reactor re-entered; step skipped");
         return;
     };
+    if d.handing_over {
+        // The new daemon owns the windows now; events wait in `pending`
+        // for the case it fails and we resume.
+        return;
+    }
     let now = Instant::now();
     let outcomes = f(&mut d.reactor, now);
     d.handle_outcomes(outcomes, now);
@@ -399,7 +418,14 @@ fn drain_channel(daemon: &Rc<RefCell<Daemon>>) {
             Err(_) => return,
         };
         let Some(msg) = msg else { return };
+        let handing_over = daemon.try_borrow().is_ok_and(|d| d.handing_over);
         match msg {
+            MainMsg::Ipc(IpcMsg::Request { reply, .. }) if handing_over => {
+                let _ = reply.send(Response::err(
+                    0,
+                    "a hot swap is in progress; try again in a second",
+                ));
+            }
             MainMsg::Ipc(IpcMsg::Request { req, reply }) => {
                 let mut resp = None;
                 step(daemon, |r, now| {
@@ -430,6 +456,7 @@ fn drain_channel(daemon: &Rc<RefCell<Daemon>>) {
                 }
             }
             MainMsg::ReloadConfig => reload(daemon),
+            MainMsg::SwapResult(res) => swap_result(daemon, res),
             MainMsg::HotSwap(why) => {
                 tracing::info!("hot swap requested: {why}");
                 hot_swap(daemon);
@@ -682,23 +709,59 @@ fn shutdown(daemon: &Rc<RefCell<Daemon>>) {
     d.main_loop.stop();
 }
 
-/// Replace this process with the `tatamid` on disk, same pid: the layout
-/// crosses in a manifest and the listening socket as standard input;
-/// every window stays exactly where it is, parked ones included, and the
-/// new image finds them again by pid and window id. Only ever execs our
-/// own path. If anything fails before the exec, the old image keeps
-/// serving and `swap-status` says why.
+/// Hand over to the `tatamid` on disk: the layout crosses in a manifest
+/// and the listening socket as the new process's standard input; every
+/// window stays exactly where it is, parked ones included, and the new
+/// daemon finds them again by pid and window id. A new process, not an
+/// exec over this one: macOS refuses a menu bar item to a process that
+/// exec'd itself (verified with a two-line AppKit program), so the menu
+/// bar icon would be gone until the next cold start. This process stops
+/// touching anything the moment the child is spawned and exits once the
+/// child says `ok`; if it never does, this one resumes and `swap-status`
+/// says why. Only ever runs our own path.
 fn hot_swap(daemon: &Rc<RefCell<Daemon>>) {
     let Ok(mut d) = daemon.try_borrow_mut() else {
         tracing::warn!("hot swap: daemon busy; not swapped");
         return;
     };
-    if d.want_exit {
+    if d.want_exit || d.handing_over {
         return;
     }
-    let e = d.try_hot_swap();
-    tracing::warn!("hot swap failed: {e}; still running tatamid {VERSION}");
-    handoff::write_status(&format!("failed {e}"));
+    if let Err(e) = d.start_handover() {
+        tracing::warn!("hot swap failed: {e}; still running tatamid {VERSION}");
+        handoff::write_status(&format!("failed {e}"));
+    }
+}
+
+/// The watcher's verdict on the new daemon.
+fn swap_result(daemon: &Rc<RefCell<Daemon>>, res: Result<String, String>) {
+    {
+        let Ok(mut d) = daemon.try_borrow_mut() else {
+            return;
+        };
+        if !d.handing_over {
+            return;
+        }
+        match res {
+            Ok(version) => {
+                tracing::info!(
+                    "hot swap: tatamid {version} is serving; tatamid {VERSION} (pid {}) exits",
+                    std::process::id()
+                );
+                // No save, no un-park, no socket removal: all of it is the
+                // new daemon's now. `exit` skips the destructors on purpose.
+                std::process::exit(0);
+            }
+            Err(e) => {
+                tracing::warn!("hot swap failed: {e}; tatamid {VERSION} resumes");
+                handoff::write_status(&format!("failed {e}"));
+                let _ = std::fs::remove_file(handoff::path());
+                d.handing_over = false;
+            }
+        }
+    }
+    // Whatever the child moved before giving up, put back.
+    step(daemon, |r, now| r.resume(now));
 }
 
 fn install_tap(daemon: &Rc<RefCell<Daemon>>) {
@@ -720,6 +783,9 @@ fn install_tap(daemon: &Rc<RefCell<Daemon>>) {
         let Ok(mut dm) = d.try_borrow_mut() else {
             return KeyDisposition::Pass;
         };
+        if dm.handing_over {
+            return KeyDisposition::Pass;
+        }
         let disp = dm.reactor.on_key(raw, Instant::now());
         drop(dm);
         // Run the actions (and overlay changes, which an Alt press alone
@@ -894,15 +960,9 @@ impl Daemon {
     }
 
     /// Returns only on failure: a successful exec never comes back.
-    fn try_hot_swap(&mut self) -> String {
-        let exe = match std::env::current_exe() {
-            Ok(p) => p,
-            Err(e) => return format!("current_exe: {e}"),
-        };
-        let next = match handoff::preflight(&exe) {
-            Ok(v) => v,
-            Err(e) => return e,
-        };
+    fn start_handover(&mut self) -> Result<(), String> {
+        let exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+        let next = handoff::preflight(&exe)?;
         // The layout as of this instant, to state.json too in case the
         // new image never comes up.
         self.save_now(true);
@@ -913,37 +973,78 @@ impl Daemon {
             state: self.reactor.snapshot(),
         };
         let path = handoff::path();
-        if let Err(e) = handoff::write(&path, &manifest) {
-            return e;
-        }
-        let listener = match self.ipc.listener().try_clone() {
-            Ok(l) => l,
-            Err(e) => {
-                let _ = std::fs::remove_file(&path);
-                return format!("dup listener: {e}");
-            }
-        };
-        let _ = std::fs::remove_file(handoff::status_path());
+        handoff::write(&path, &manifest)?;
+        let listener = self.ipc.listener().try_clone().map_err(|e| {
+            let _ = std::fs::remove_file(&path);
+            format!("dup listener: {e}")
+        })?;
+        let status = handoff::status_path();
+        let _ = std::fs::remove_file(&status);
         tracing::info!(
-            "hot swap: exec {} (tatamid {VERSION} → {next}), {} windows",
+            "hot swap: starting {} (tatamid {VERSION} → {next}), {} windows",
             exe.display(),
             manifest.state.window_count()
         );
-        // `exec` replaces this process. The listener lands on fd 0 through
-        // `Stdio` (a dup, so it loses its close-on-exec), every other
-        // descriptor closes, the environment carries over.
-        let err = Command::new(&exe)
+        // The listener lands on the child's fd 0 through `Stdio`; stdout
+        // and stderr (the log) are inherited. Its own process group, so a
+        // launchd-run parent's exit does not take it along.
+        let mut child = Command::new(&exe)
             .arg("--adopt")
             .arg(&path)
             .stdin(Stdio::from(OwnedFd::from(listener)))
-            .exec();
-        let _ = std::fs::remove_file(&path);
-        format!("exec {}: {err}", exe.display())
+            .process_group(0)
+            .spawn()
+            .map_err(|e| {
+                let _ = std::fs::remove_file(&path);
+                format!("start {}: {e}", exe.display())
+            })?;
+        tracing::info!("hot swap: new tatamid is pid {}", child.id());
+        self.handing_over = true;
+        // Watch from a thread: the main thread must stay free for the
+        // run loop, and the verdict comes back through the channel.
+        let (tx, wake) = (self.tx.clone(), self.main_loop.waker());
+        std::thread::Builder::new()
+            .name("tatami-handover".into())
+            .spawn(move || {
+                let deadline = Instant::now() + HANDOVER_TIMEOUT;
+                let res = loop {
+                    if let Ok(Some(st)) = child.try_wait() {
+                        break Err(format!("the new tatamid exited ({st}) before it was ready"));
+                    }
+                    let line = std::fs::read_to_string(&status).unwrap_or_default();
+                    let line = line.lines().next().unwrap_or("").trim();
+                    if let Some(v) = line.strip_prefix("ok ") {
+                        break Ok(v.trim().to_string());
+                    }
+                    if let Some(w) = line.strip_prefix("failed ") {
+                        let _ = child.kill();
+                        break Err(w.to_string());
+                    }
+                    if Instant::now() > deadline {
+                        let _ = child.kill();
+                        break Err(format!(
+                            "no word from the new tatamid after {} s",
+                            HANDOVER_TIMEOUT.as_secs()
+                        ));
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                };
+                let _ = tx.send(MainMsg::SwapResult(res));
+                wake();
+            })
+            .map_err(|e| format!("watcher thread: {e}"))?;
+        Ok(())
     }
 
     /// Serialize and write if the bytes changed (or `force`).
     fn save_now(&mut self, force: bool) {
         self.dirty_since = None;
+        // Without Accessibility the daemon has seen no window; what is on
+        // disk is the truth and must not be replaced by an empty desk.
+        if !self.reactor.trusted() {
+            tracing::debug!("state not saved: Accessibility not granted");
+            return;
+        }
         let mut s: SavedState = self.reactor.snapshot();
         let bytes = serde_json::to_vec(&s).unwrap_or_default();
         if !force && bytes == self.last_saved {

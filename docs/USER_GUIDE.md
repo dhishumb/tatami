@@ -52,11 +52,12 @@ git pull && ./scripts/install.sh --upgrade
 ```
 
 `--upgrade` installs and signs the binaries and, if the daemon's binary
-changed, **hot-swaps** the running daemon: it execs the new `tatamid`
-over itself, same pid and same socket, with the layout handed across.
-No window moves, hidden workspaces stay hidden, and a `tatami` command
-sent meanwhile waits in the socket's backlog rather than failing. The
-installer prints the new version once the new image is serving.
+changed, **hot-swaps** the running daemon: it starts the new `tatamid`
+and hands it the socket and the layout, then exits once the new one is
+serving. No window moves, hidden workspaces stay hidden, the menu bar
+item is the new daemon's, and a `tatami` command sent meanwhile is
+told to try again in a second. The installer prints the new version
+and the new pid once it is serving.
 `tatami hot-swap`, `alt+s u` or the menu bar item do the same at any
 time; `kill -USR1 <pid>` too. A daemon from before hot swap, or a swap
 that fails (the old daemon keeps running in that case and says why in

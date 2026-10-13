@@ -214,12 +214,34 @@ pub fn run(args: &[String]) -> ExitCode {
             // does not restart a clean exit.
             crate::request(vec!["quit".into()])
         }
+        // Quit through the socket first: after a hot swap the running
+        // daemon is not launchd's process, and `kickstart -k` would not
+        // reach it.
         Some("restart") => {
-            if launchctl(&["kickstart", "-k", &target]) {
+            if daemon_running() {
+                let _ = crate::request(vec!["quit".into()]);
+                for _ in 0..40 {
+                    if !daemon_running() {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                }
+            }
+            let ok = if is_loaded(&target) {
+                launchctl(&["kickstart", "-k", &target])
+            } else if plist.exists() {
+                bootstrap(&plist)
+            } else {
+                eprintln!(
+                    "tatami: no launchd agent; `tatami service enable` first, or run `tatamid`"
+                );
+                return ExitCode::FAILURE;
+            };
+            if ok {
                 println!("restarted {LABEL}");
                 ExitCode::SUCCESS
             } else {
-                eprintln!("tatami: launchctl kickstart failed; is the service installed?");
+                eprintln!("tatami: launchctl could not start {LABEL}");
                 ExitCode::FAILURE
             }
         }

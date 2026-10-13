@@ -695,6 +695,7 @@ dependencies = [
  "embed_plist",
  "notify-debouncer-mini",
  "objc2",
+ "serde",
  "serde_json",
  "signal-hook",
  "tatami-config",

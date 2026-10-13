@@ -52,6 +52,8 @@ pub enum Outcome {
     Exec(String),
     Exit,
     ReloadConfig,
+    /// `hot-swap`: exec the `tatamid` on disk over this process.
+    HotSwap,
 }
 
 /// Frame-transaction verify delays after attempt 1, 2 and 3.
@@ -336,10 +338,12 @@ fn centered(r: Rect, area: &Rect) -> Rect {
 
 impl<P: Platform> Reactor<P> {
     /// Reads screens/apps/windows from the platform, observes every regular
-    /// app, adopts existing windows into workspace trees (first configured
-    /// name per monitor), un-parks any stray parked windows, starts the
-    /// restore session if `saved` is given and restore is enabled. Does NOT
-    /// install the key tap (daemon does).
+    /// app, adopts existing windows into workspace trees, un-parks any
+    /// stray parked windows, and either lays everything out or, when
+    /// `saved` is given, starts the restore session (which lays out once,
+    /// so windows never see the interim layout; the caller decides whether
+    /// `restore.enabled` applies). Does NOT install the key tap (daemon
+    /// does).
     pub fn new(platform: P, config: Config, saved: Option<SavedState>, now: Instant) -> Self {
         let (keymap, _warnings) = config.keymap();
         let keys = KeyState::new(config.general.which_key_delay(), config.general.leader);
@@ -400,11 +404,8 @@ impl<P: Platform> Reactor<P> {
         if let Some(id) = focus {
             r.note_focused(id);
         }
-        r.relayout_all();
-        if let Some(s) = saved
-            && r.cfg.restore.enabled
-        {
-            r.restore_inner(s);
+        if !saved.is_some_and(|s| r.restore_inner(s)) {
+            r.relayout_all();
         }
         // Nobody is subscribed yet; the first `drain` sets the status.
         r.out.clear();
@@ -418,6 +419,10 @@ impl<P: Platform> Reactor<P> {
 
     pub fn trusted(&self) -> bool {
         self.trusted
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.enabled
     }
 
     pub fn focused_monitor(&self) -> MonitorInfo {
@@ -821,6 +826,10 @@ impl<P: Platform> Reactor<P> {
             ],
         ));
         rows.push(MenuItem::separator());
+        rows.push(MenuItem::action(
+            "Hot-swap to the installed build",
+            &["hot-swap"],
+        ));
         rows.push(MenuItem::action("Quit tatami", &["quit"]));
         rows
     }

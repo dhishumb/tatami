@@ -93,6 +93,16 @@ scripts/install.sh --upgrade                                                    
   clock restarts on every change), plus a 5 s periodic save skipped when
   the bytes are unchanged, plus on exit.
   Nothing expensive on this path.
+- **Hot swap.** Never `exec` without the `--version` preflight (`tatamid …`
+  plus a `handoff N` line: a build from before hot swap ignores `--adopt`,
+  finds the socket taken and exits, taking the WM with it) and a written
+  manifest. Only the listening socket crosses the exec, as standard
+  input; the manifest is JSON, fields added with `#[serde(default)]`,
+  `HANDOFF_FORMAT` bumped only for a shape an old reader must refuse.
+  The installer asks the daemon (`tatami hot-swap`) and falls back to the
+  cold restart on `unknown command` or `failed`. By hand: `kill -USR1
+  <exact pid>`, never `pkill -USR1 -x tatamid` (SIGUSR1 kills a
+  pre-hot-swap tatamid).
 
 ## Protocol
 

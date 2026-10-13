@@ -39,6 +39,8 @@ pub type Waker = Arc<dyn Fn() + Send + Sync>;
 
 pub struct IpcServer {
     path: PathBuf,
+    /// A second handle on the listener, for a hot swap to hand across.
+    listener: UnixListener,
 }
 
 impl IpcServer {
@@ -63,6 +65,38 @@ impl IpcServer {
         }
         let listener = UnixListener::bind(&path)?;
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+        Self::serve_on(listener, path, tx, wake)
+    }
+
+    /// Serve on the listener a previous image handed over as standard
+    /// input (a hot swap). It must be the listener for `path`; the socket
+    /// file is already there and stays.
+    pub fn adopt(path: PathBuf, tx: Sender<crate::MainMsg>, wake: Waker) -> io::Result<IpcServer> {
+        use std::os::fd::AsFd;
+        let fd = std::io::stdin().as_fd().try_clone_to_owned()?;
+        let listener = UnixListener::from(fd);
+        let addr = listener.local_addr()?;
+        if addr.as_pathname() != Some(path.as_path()) {
+            return Err(io::Error::other(format!(
+                "standard input is not the listener on {} ({addr:?})",
+                path.display()
+            )));
+        }
+        Self::serve_on(listener, path, tx, wake)
+    }
+
+    /// The listening socket itself, to pass to the next image.
+    pub fn listener(&self) -> &UnixListener {
+        &self.listener
+    }
+
+    fn serve_on(
+        listener: UnixListener,
+        path: PathBuf,
+        tx: Sender<crate::MainMsg>,
+        wake: Waker,
+    ) -> io::Result<IpcServer> {
+        let keep = listener.try_clone()?;
         let my_uid = unsafe_geteuid();
         thread::Builder::new()
             .name("tatami-ipc".into())
@@ -87,7 +121,10 @@ impl IpcServer {
                     }
                 }
             })?;
-        Ok(IpcServer { path })
+        Ok(IpcServer {
+            path,
+            listener: keep,
+        })
     }
 }
 

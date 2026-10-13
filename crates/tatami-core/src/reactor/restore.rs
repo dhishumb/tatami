@@ -296,14 +296,15 @@ impl<P: Platform> Reactor<P> {
         }
     }
 
-    pub(super) fn restore_inner(&mut self, saved: SavedState) {
+    /// `false` when nothing was done (another workspace model).
+    pub(super) fn restore_inner(&mut self, saved: SavedState) -> bool {
         if saved.model != self.model_name() {
             tracing::warn!(
                 saved = %saved.model,
                 running = self.model_name(),
                 "saved layout uses another workspace model; not restoring"
             );
-            return;
+            return false;
         }
         self.drop_session();
 
@@ -437,6 +438,7 @@ impl<P: Platform> Reactor<P> {
         self.gc();
         self.emit_restore();
         self.dirty = true;
+        true
     }
 
     /// Launch apps with unmatched specs: once per bundle id, only when not

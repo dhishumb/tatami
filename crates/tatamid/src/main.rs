@@ -6,6 +6,7 @@
 //! borrows the single `RefCell` once, runs one closure, handles the
 //! outcomes and re-arms the timer. Platform callbacks only queue and poke.
 
+mod handoff;
 mod ipc;
 mod signals;
 mod watch;
@@ -16,7 +17,10 @@ embed_plist::embed_info_plist!("../Info.plist");
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::os::fd::OwnedFd;
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use std::rc::{Rc, Weak};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
@@ -41,6 +45,8 @@ pub enum MainMsg {
     Ipc(IpcMsg),
     ReloadConfig,
     Shutdown(String),
+    /// Replace this process with the `tatamid` on disk (the reason, for the log).
+    HotSwap(String),
 }
 
 impl From<IpcMsg> for MainMsg {
@@ -52,6 +58,7 @@ impl From<IpcMsg> for MainMsg {
 struct Daemon {
     reactor: Reactor<MacPlatform>,
     main_loop: MainLoop,
+    ipc: ipc::IpcServer,
     rx: Receiver<MainMsg>,
     /// Platform events queued by callbacks while the daemon was busy.
     pending: Rc<RefCell<VecDeque<PlatformEvent>>>,
@@ -65,29 +72,42 @@ struct Daemon {
     /// Set by outcomes; acted on by `step` after the borrow is released.
     want_reload: bool,
     want_exit: bool,
+    want_swap: bool,
     main_loop_stopped: bool,
     _watcher: Option<watch::ConfigWatcher>,
 }
 
 fn main() {
     init_logging();
-    if std::env::args().any(|a| a == "--version" || a == "-V") {
-        println!("tatamid {VERSION}");
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        // The second line is what a hot swap checks before exec'ing us.
+        println!("tatamid {VERSION}\nhandoff {}", handoff::HANDOFF_FORMAT);
         return;
     }
+    // `--adopt <manifest>`: we were exec'd by a previous image (hot swap);
+    // the listener is our standard input and the layout is in the manifest.
+    let adopt = args
+        .windows(2)
+        .find(|w| w[0] == "--adopt")
+        .map(|w| PathBuf::from(&w[1]));
+    let manifest = adopt
+        .as_deref()
+        .and_then(|p| match handoff::read_and_remove(p) {
+            Ok(m) => Some(m),
+            Err(e) => {
+                tracing::error!("hot swap: {e}; starting from state.json instead");
+                None
+            }
+        });
+
     let mtm = objc2::MainThreadMarker::new().expect("tatamid must start on the main thread");
     let main_loop = MainLoop::new(mtm);
     let wake = main_loop.waker();
     let (tx, rx) = channel::<MainMsg>();
 
     let sock = socket_path();
-    let _ipc = match ipc::IpcServer::start(sock.clone(), tx.clone(), wake.clone()) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!("cannot listen on {}: {e}", sock.display());
-            std::process::exit(2);
-        }
-    };
+    let ipc = listen(sock.clone(), tx.clone(), wake.clone(), adopt.is_some());
     if let Err(e) = signals::start(tx.clone(), wake.clone()) {
         tracing::warn!("signal handler not installed: {e}");
     }
@@ -97,20 +117,39 @@ fn main() {
     let watcher = watch::start(&config_path, tx.clone(), wake.clone());
 
     let state_path = tatami_state::state_path();
-    let saved = match tatami_state::load(&state_path) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::warn!("state not loaded: {e}");
-            None
+    let mut enabled = true;
+    let saved = match manifest {
+        Some(m) => {
+            tracing::info!(
+                "hot swap: tatamid {} → {VERSION}, same pid, {} windows in the manifest",
+                m.version,
+                m.state.window_count()
+            );
+            enabled = m.enabled;
+            Some(m.state)
         }
+        None => match tatami_state::load(&state_path) {
+            Ok(Some(s)) if !config.restore.enabled => {
+                tracing::info!("restore disabled; ignoring {}", state_path.display());
+                drop(s);
+                None
+            }
+            Ok(s) => {
+                if let Some(s) = &s {
+                    tracing::info!(
+                        "restoring {} windows from {}",
+                        s.window_count(),
+                        state_path.display()
+                    );
+                }
+                s
+            }
+            Err(e) => {
+                tracing::warn!("state not loaded: {e}");
+                None
+            }
+        },
     };
-    if let Some(s) = &saved {
-        tracing::info!(
-            "restoring {} windows from {}",
-            s.window_count(),
-            state_path.display()
-        );
-    }
 
     let mut platform = MacPlatform::new();
     let pending: Rc<RefCell<VecDeque<PlatformEvent>>> = Rc::default();
@@ -146,9 +185,13 @@ fn main() {
     if !trusted {
         let _ = reactor.on_platform_event(PlatformEvent::TrustChanged(false), now);
     }
+    if !enabled {
+        reactor.set_enabled(false);
+    }
     let daemon = Rc::new(RefCell::new(Daemon {
         reactor,
         main_loop: main_loop.clone(),
+        ipc,
         rx,
         pending: pending.clone(),
         subscribers: Vec::new(),
@@ -160,6 +203,7 @@ fn main() {
         tap_installed: false,
         want_reload: false,
         want_exit: false,
+        want_swap: false,
         main_loop_stopped: false,
         _watcher: watcher,
     }));
@@ -188,7 +232,33 @@ fn main() {
     drain_platform_events(&daemon);
 
     tracing::info!("tatamid {VERSION} ready on {}", sock.display());
+    if adopt.is_some() {
+        handoff::write_status(&format!("ok {VERSION}"));
+    }
     main_loop.run();
+}
+
+/// The socket: bound fresh, or adopted from the previous image after a hot
+/// swap. If the adoption fails (it should not: the old image checked this
+/// build first) the stale socket file is replaced by a fresh one, so
+/// clients keep working either way.
+fn listen(sock: PathBuf, tx: Sender<MainMsg>, wake: ipc::Waker, adopting: bool) -> ipc::IpcServer {
+    if adopting {
+        match ipc::IpcServer::adopt(sock.clone(), tx.clone(), wake.clone()) {
+            Ok(s) => return s,
+            Err(e) => {
+                tracing::error!("hot swap: cannot adopt the listener: {e}; binding anew");
+                let _ = std::fs::remove_file(&sock);
+            }
+        }
+    }
+    match ipc::IpcServer::start(sock.clone(), tx, wake) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("cannot listen on {}: {e}", sock.display());
+            std::process::exit(2);
+        }
+    }
 }
 
 fn init_logging() {
@@ -238,8 +308,10 @@ where
     }
     d.after_step(now);
     let want_reload = std::mem::take(&mut d.want_reload);
+    let want_swap = std::mem::take(&mut d.want_swap);
     let want_exit = d.want_exit;
     let want_tap = !d.tap_installed && d.reactor.trusted();
+    let main_loop = d.main_loop.clone();
     drop(d);
     if want_tap {
         install_tap(daemon);
@@ -249,6 +321,11 @@ where
     }
     if want_exit {
         shutdown(daemon);
+    } else if want_swap {
+        // On the next run-loop pass, so the reply to `tatami hot-swap` is
+        // on its way before this process is replaced.
+        let d = daemon.clone();
+        main_loop.perform(Box::new(move || hot_swap(&d)));
     }
 }
 
@@ -297,6 +374,10 @@ fn drain_channel(daemon: &Rc<RefCell<Daemon>>) {
                 }
             }
             MainMsg::ReloadConfig => reload(daemon),
+            MainMsg::HotSwap(why) => {
+                tracing::info!("hot swap requested: {why}");
+                hot_swap(daemon);
+            }
             MainMsg::Shutdown(why) => {
                 tracing::info!("shutting down: {why}");
                 shutdown(daemon);
@@ -447,6 +528,25 @@ fn shutdown(daemon: &Rc<RefCell<Daemon>>) {
     d.main_loop.stop();
 }
 
+/// Replace this process with the `tatamid` on disk, same pid: the layout
+/// crosses in a manifest and the listening socket as standard input;
+/// every window stays exactly where it is, parked ones included, and the
+/// new image finds them again by pid and window id. Only ever execs our
+/// own path. If anything fails before the exec, the old image keeps
+/// serving and `swap-status` says why.
+fn hot_swap(daemon: &Rc<RefCell<Daemon>>) {
+    let Ok(mut d) = daemon.try_borrow_mut() else {
+        tracing::warn!("hot swap: daemon busy; not swapped");
+        return;
+    };
+    if d.want_exit {
+        return;
+    }
+    let e = d.try_hot_swap();
+    tracing::warn!("hot swap failed: {e}; still running tatamid {VERSION}");
+    handoff::write_status(&format!("failed {e}"));
+}
+
 fn install_tap(daemon: &Rc<RefCell<Daemon>>) {
     let weak: Weak<RefCell<Daemon>> = Rc::downgrade(daemon);
     let Ok(mut d) = daemon.try_borrow_mut() else {
@@ -511,9 +611,10 @@ impl Daemon {
                         tracing::warn!("exec `{cmd}`: {e}");
                     }
                 }
-                // Both need the Rc, so `step` acts on them after the borrow ends.
+                // These need the Rc, so `step` acts on them after the borrow ends.
                 Outcome::ReloadConfig => self.want_reload = true,
                 Outcome::Exit => self.want_exit = true,
+                Outcome::HotSwap => self.want_swap = true,
             }
         }
     }
@@ -550,6 +651,54 @@ impl Daemon {
             due = Some(due.map_or(periodic, |d| d.min(periodic)));
         }
         self.main_loop.set_timer(due);
+    }
+
+    /// Returns only on failure: a successful exec never comes back.
+    fn try_hot_swap(&mut self) -> String {
+        let exe = match std::env::current_exe() {
+            Ok(p) => p,
+            Err(e) => return format!("current_exe: {e}"),
+        };
+        let next = match handoff::preflight(&exe) {
+            Ok(v) => v,
+            Err(e) => return e,
+        };
+        // The layout as of this instant, to state.json too in case the
+        // new image never comes up.
+        self.save_now(true);
+        let manifest = handoff::Manifest {
+            handoff: handoff::HANDOFF_FORMAT,
+            version: VERSION.to_string(),
+            enabled: self.reactor.enabled(),
+            state: self.reactor.snapshot(),
+        };
+        let path = handoff::path();
+        if let Err(e) = handoff::write(&path, &manifest) {
+            return e;
+        }
+        let listener = match self.ipc.listener().try_clone() {
+            Ok(l) => l,
+            Err(e) => {
+                let _ = std::fs::remove_file(&path);
+                return format!("dup listener: {e}");
+            }
+        };
+        let _ = std::fs::remove_file(handoff::status_path());
+        tracing::info!(
+            "hot swap: exec {} (tatamid {VERSION} → {next}), {} windows",
+            exe.display(),
+            manifest.state.window_count()
+        );
+        // `exec` replaces this process. The listener lands on fd 0 through
+        // `Stdio` (a dup, so it loses its close-on-exec), every other
+        // descriptor closes, the environment carries over.
+        let err = Command::new(&exe)
+            .arg("--adopt")
+            .arg(&path)
+            .stdin(Stdio::from(OwnedFd::from(listener)))
+            .exec();
+        let _ = std::fs::remove_file(&path);
+        format!("exec {}: {err}", exe.display())
     }
 
     /// Serialize and write if the bytes changed (or `force`).

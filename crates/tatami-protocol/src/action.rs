@@ -312,6 +312,8 @@ pub enum Action {
     /// sheet, until a key resolves it.
     Overview(Option<usize>),
     Quit,
+    /// Replace the running daemon with the `tatamid` on disk, in place.
+    HotSwap,
     Ping,
     Version,
     Subscribe(Vec<String>),
@@ -601,6 +603,7 @@ impl Action {
                 _ => return Err(usage(cmd, "usage: overview [monitor-number]")),
             }),
             "quit" => Action::Quit,
+            "hot-swap" => Action::HotSwap,
             "ping" => Action::Ping,
             "version" => Action::Version,
             "subscribe" => {

@@ -321,6 +321,12 @@ impl<P: Platform> Reactor<P> {
                 self.out.push(Outcome::Exit);
                 ok()
             }
+            Action::HotSwap => {
+                self.out.push(Outcome::HotSwap);
+                Ok(Reply::text(
+                    "swapping to the installed tatamid in place (same pid)",
+                ))
+            }
             Action::Ping => Ok(Reply {
                 text: "pong".to_string(),
                 data: Some(json!({

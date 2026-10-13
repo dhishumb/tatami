@@ -168,6 +168,7 @@ usage: tatami <command> [args...]      send a command to the running daemon
 Commands are the same words you bind in config.toml: focus left, move right,
 workspace 3, move-node-to-workspace 3, layout tiles horizontal vertical,
 fullscreen, resize width +50, list-windows --json, reload-config,
-checkpoint save <name>, checkpoint restore <name>, ping, quit ...
+checkpoint save <name>, checkpoint restore <name>, ping, quit,
+hot-swap (replace the running daemon with the installed build, in place) ...
 Run `tatami list-modes` or see the README for the full list.
 ";

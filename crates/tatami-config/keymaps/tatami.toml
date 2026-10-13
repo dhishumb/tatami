@@ -162,4 +162,5 @@
 "b" = ["balance-sizes", "normal"]
 "c" = ["checkpoint save", "normal"]
 "e" = ["enable toggle", "normal"]
+"u" = ["hot-swap", "normal"]                      # upgrade in place to the installed tatamid
 "q" = ["quit", "normal"]

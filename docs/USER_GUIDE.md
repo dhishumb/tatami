@@ -52,11 +52,19 @@ git pull && ./scripts/install.sh --upgrade
 ```
 
 `--upgrade` installs and signs the binaries and, if the daemon's binary
-changed, restarts the running daemon: `tatami quit` saves the layout and
-puts every window back on screen, launchd (or the script) starts the new
-build, and the new build restores the layout. Nothing else is touched.
-`TATAMI_NO_RELAUNCH=1` leaves a running daemon alone; `SKIP_BUILD=1`
-reuses `target/release/`.
+changed, **hot-swaps** the running daemon: it execs the new `tatamid`
+over itself, same pid and same socket, with the layout handed across.
+No window moves, hidden workspaces stay hidden, and a `tatami` command
+sent meanwhile waits in the socket's backlog rather than failing. The
+installer prints the new version once the new image is serving.
+`tatami hot-swap`, `alt+s u` or the menu bar item do the same at any
+time; `kill -USR1 <pid>` too. A daemon from before hot swap, or a swap
+that fails (the old daemon keeps running in that case and says why in
+the log), gets the cold restart instead: `tatami quit` saves the layout
+and puts every window back on screen, launchd (or the script) starts
+the new build, and the new build restores the layout. Nothing else is
+touched. `TATAMI_NO_RELAUNCH=1` leaves a running daemon alone;
+`SKIP_BUILD=1` reuses `target/release/`.
 
 Quit Rectangle, yabai, AeroSpace or Amethyst first. Two managers fight
 over every window, and Rectangle's Alt shortcuts collide with tatami's.
@@ -67,6 +75,7 @@ over every window, and Rectangle's Alt shortcuts collide with tatami's.
 tatamid                   # run in the foreground (logs to the terminal)
 tatami service status     # is the launchd agent installed and loaded?
 tatami service restart    # restart under launchd
+tatami hot-swap           # replace the daemon with the installed build, in place
 tatami quit               # stop the daemon cleanly (layout saved, windows un-parked)
 tatami ping               # is it alive? also reports Accessibility trust
 ```
@@ -133,7 +142,7 @@ until `Esc` or `Enter`; the others leave after one.
 | `alt+w` + | **workspaces**: `h`/`l` previous/next, `n`/`p` next/previous monitor, `m` move this workspace to the next monitor, `1-9` |
 | `alt+m` + (sticky) | **move**: `hjkl` move, `HJKL` move onto the monitor in that direction, `n` swap with the next tile, `1-9` move to workspace N |
 | `alt+r` + (sticky) | **resize**: `h`/`l` width, `j`/`k` height, `-`/`+` smart (along the container's axis), `=` balance |
-| `alt+s` + | **service**: `r` reload config, `f` flatten the workspace, `b` balance, `c` save a checkpoint, `e` tiling on/off, `q` quit |
+| `alt+s` + | **service**: `r` reload config, `f` flatten the workspace, `b` balance, `c` save a checkpoint, `e` tiling on/off, `u` hot-swap to the installed build, `q` quit |
 
 Unbound Alt chords pass through to the app. Inside a mode every key is
 captured until you leave. A chord that cannot act (nothing to the left,
@@ -246,7 +255,7 @@ pointer and the active mode (`[2] RESIZE`). Its menu lists every
 monitor's workspaces (the visible one checked, the focused monitor
 marked) to switch with a click, and the service actions: show keys,
 balance, flatten, tiling on/off, save checkpoint, reload config, edit
-config, quit. `enable toggle` (`alt+s e`) stops managing without
+config, hot-swap to the installed build, quit. `enable toggle` (`alt+s e`) stops managing without
 quitting: every window is un-parked and left alone until you turn it
 back on.
 

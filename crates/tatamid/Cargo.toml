@@ -20,5 +20,6 @@ signal-hook = { workspace = true }
 dispatch2 = { workspace = true }
 embed_plist = { workspace = true }
 objc2 = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 

@@ -11,14 +11,18 @@
 #             install the launchd agent so tatamid starts at login, start
 #             (or restart) the daemon, print the next steps. Safe to re-run.
 #
-#   --upgrade Binary-only — install and sign the binaries, restart a
-#             running daemon on the new build, and stop. No config or
-#             launchd changes.
+#   --upgrade Binary-only — install and sign the binaries, move a running
+#             daemon onto the new build, and stop. No config or launchd
+#             changes.
 #
-# A running tatamid is restarted only when its binary changed. The restart
-# is clean: `tatami quit` saves the layout and un-parks every window, then
-# launchd (or this script) starts the new build, which puts every window
-# back from state.json. TATAMI_NO_RELAUNCH=1 leaves a running daemon alone.
+# A running tatamid is touched only when its binary changed, and then it
+# is hot-swapped: `tatami hot-swap` makes the daemon exec the new binary
+# over itself (same pid, same socket, no window moves; the installer waits
+# for the new image's `ok` in swap-status next to the socket). A daemon
+# from before hot swap, or a swap that fails, gets the cold restart:
+# `tatami quit` saves the layout and un-parks every window, then launchd
+# (or this script) starts the new build, which puts every window back
+# from state.json. TATAMI_NO_RELAUNCH=1 leaves a running daemon alone.
 #
 # Sources for the binaries (checked in order):
 #
@@ -236,14 +240,45 @@ if resolved="$(command -v tatami 2>/dev/null)" && [[ -n "$resolved" ]] && ! [[ "
     warn "Put $BIN_DIR earlier in PATH, or remove the other copy."
 fi
 
-# 5. The running daemon. Via launchd when the agent is installed (it
-# respawns the new build), else by hand. `quit` saves state and un-parks
-# every window first, and the new build puts them back from state.json.
+# 5. The running daemon. Hot swap first: the daemon execs the new binary
+# in place and the new image writes `ok <version>` to swap-status next to
+# the socket (the old one writes `failed <why>` and keeps serving). A
+# daemon that does not know the command, or a failed swap, falls back to
+# the cold restart: via launchd when the agent is installed (it respawns
+# the new build), else by hand; `quit` saves state and un-parks every
+# window first, and the new build puts them back from state.json.
 service_loaded() {
     launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1
 }
 daemon_running() {
     pgrep -a -x tatamid >/dev/null 2>&1
+}
+hot_swap_daemon() {
+    local sock status out line pid
+    sock="$("$BIN_DIR/tatami" socket-path 2>/dev/null)" || return 1
+    status="${sock%/*}/swap-status"
+    pid="$(pgrep -x tatamid | head -1)"
+    rm -f "$status"
+    if ! out="$("$BIN_DIR/tatami" hot-swap 2>&1)"; then
+        case "$out" in
+            *"unknown command"*)
+                info "the running daemon predates hot swap — restarting it instead"
+                return 1 ;;
+            *) ;;   # the reply can be cut by the exec itself; the status file decides
+        esac
+    fi
+    for _ in $(seq 1 40); do
+        if [[ -s "$status" ]]; then
+            read -r line < "$status"
+            case "$line" in
+                ok*) ok "hot-swapped the running daemon to tatamid ${line#ok } (same pid $pid, no window moved)"; return 0 ;;
+                *)   warn "hot swap failed: ${line#failed }"; return 1 ;;
+            esac
+        fi
+        sleep 0.25
+    done
+    warn "no word from the daemon after 10 s — see $STATE_DIR/log/tatamid.log"
+    return 0
 }
 restart_daemon() {
     if [[ -n "${TATAMI_NO_RELAUNCH:-}" ]]; then return; fi
@@ -252,6 +287,7 @@ restart_daemon() {
         info "the running daemon is unchanged — nothing to restart"
         return
     fi
+    if hot_swap_daemon; then return; fi
     info "restarting the running daemon on the new build (layout is saved and restored)…"
     "$BIN_DIR/tatami" quit >/dev/null 2>&1 || pkill -TERM -x tatamid 2>/dev/null || true
     for _ in $(seq 1 40); do
@@ -375,7 +411,7 @@ Next steps:
   - All keys:        tatami keymap
   - Config:          \$EDITOR $CONFIG_FILE    (hot-reloaded)
   - Menu bar:        the grid icon lists workspaces per monitor and the
-                     service actions (reload, checkpoint, enable, quit)
+                     service actions (reload, checkpoint, enable, hot-swap, quit)
   - Checkpoints:     tatami checkpoint save <name> | restore <name> | list
 
 Layout:
@@ -385,6 +421,7 @@ Layout:
   $STATE_DIR/log/tatamid.log
 
 Daemon: tatami service status | restart | uninstall    tatami quit
+Upgrade: git pull && ./scripts/install.sh --upgrade  (hot-swaps the daemon in place)
 Uninstall: tatami service uninstall && rm $BIN_DIR/{tatamid,tatami}
            (and $CONFIG_DIR, $STATE_DIR for a clean slate)
 EOF

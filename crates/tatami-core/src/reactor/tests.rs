@@ -1299,6 +1299,14 @@ fn requests_ping_quit_exec_and_daemon_words() {
     let args = |s: &str| -> Vec<String> { s.split_whitespace().map(String::from).collect() };
     let (resp, out) = t.r.handle_request(&args("quit"), t.now);
     assert!(resp.ok && out.contains(&Outcome::Exit));
+    // `hot-swap` is the daemon's to do; the reactor only asks, and the
+    // menu offers it.
+    let (resp, out) = t.r.handle_request(&args("hot-swap"), t.now);
+    assert!(resp.ok && out.contains(&Outcome::HotSwap), "{resp:?}");
+    assert!(
+        t.r.menu_items().iter().any(|m| m.command == ["hot-swap"]),
+        "menu offers the swap"
+    );
     let (_, out) =
         t.r.handle_request(&args("exec-and-forget open -a Mail"), t.now);
     assert!(out.contains(&Outcome::Exec("open -a Mail".into())));

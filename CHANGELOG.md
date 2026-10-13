@@ -12,6 +12,16 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
 
 ### Added
 
+- **Upgrades hot-swap the daemon.** `scripts/install.sh --upgrade` used
+  to quit the daemon (every hidden window came back on screen for a
+  moment) and start the new build, which restored the layout. The daemon
+  now execs the new `tatamid` over itself: same pid, same socket, the
+  layout handed across in a manifest, no window moves and nothing for
+  launchd to notice. `tatami hot-swap`, `alt+s u`, the menu bar item or
+  `SIGUSR1` do it at any time; the installer falls back to the cold
+  restart for a daemon from before this change, and once more the first
+  time you install this one. A saved layout is now also restored without
+  a first tiling pass, so a start no longer flashes the interim layout.
 - **New windows get their own workspace.** A window opens on the lowest
   empty workspace of its monitor and fills it; the tenth tiles into the
   visible one. Tiling is a move into another window's workspace

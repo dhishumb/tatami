@@ -33,9 +33,10 @@ The first run asks for Accessibility; tick `tatamid` in System Settings →
 Privacy & Security → Accessibility and run `tatami service restart`. The
 binaries are signed with a self-signed identity created once in your login
 keychain, so that grant survives upgrades. `scripts/install.sh --upgrade`
-reinstalls the binaries and restarts the daemon on the new build (the
-layout is saved and restored across the restart). See the script header for
-`PREFIX`, `SKIP_BUILD`, `TATAMI_NO_SERVICE` and the other knobs.
+reinstalls the binaries and hot-swaps the running daemon onto the new
+build: same pid, same socket, no window moves (`tatami hot-swap` or
+`alt+s u` does it by hand). See the script header for `PREFIX`,
+`SKIP_BUILD`, `TATAMI_NO_SERVICE` and the other knobs.
 
 Quit Rectangle, yabai or AeroSpace first; two managers fight.
 `tatami doctor` checks the socket, the process and known conflicts.
@@ -63,7 +64,7 @@ Quit Rectangle, yabai or AeroSpace first; two managers fight.
 | `alt+w` | **workspaces**: `h`/`l` prev/next, `n`/`p` next/prev monitor, `m` move workspace to next monitor, `1-9` |
 | `alt+m` | **move** (sticky): `hjkl` move, `HJKL` move to monitor, `n` swap next, `1-9` move to workspace |
 | `alt+r` | **resize** (sticky): `h`/`l` width, `j`/`k` height, `-`/`+` smart, `=` balance |
-| `alt+s` | **service**: `r` reload config, `f` flatten, `c` checkpoint, `e` enable toggle, `b` balance, `q` quit |
+| `alt+s` | **service**: `r` reload config, `f` flatten, `c` checkpoint, `e` enable toggle, `b` balance, `u` hot-swap to the installed build, `q` quit |
 
 Hold Alt alone for 300 ms and the sheet lists the direct chords; pause
 inside a group and it lists that group. `Esc`/`Enter` leave any mode.

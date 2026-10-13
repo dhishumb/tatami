@@ -19,9 +19,48 @@ non-obvious choices were made. `CLAUDE.md` has the rules; this is the map.
 ```
 
 All state lives on the main thread. The other threads own nothing:
-each sends a `MainMsg` (`Ipc`, `ReloadConfig`, `Shutdown`) and calls
-the waker, which signals the CF source and wakes the run loop. AppKit
-and AX stay on the thread they demand, with no lock anywhere.
+each sends a `MainMsg` (`Ipc`, `ReloadConfig`, `Shutdown`, `HotSwap`)
+and calls the waker, which signals the CF source and wakes the run
+loop. AppKit and AX stay on the thread they demand, with no lock
+anywhere.
+
+### Daemon upgrade (hot swap)
+
+The daemon replaces its own code in place (`tatamid/src/main.rs`
+`hot_swap`, manifest in `handoff.rs`): same pid, so launchd sees one
+process; the Accessibility grant, keyed to the signing identity,
+carries over; no window moves and hidden workspaces stay parked. Three
+triggers share the path: `SIGUSR1` (no socket needed), the `hot-swap`
+command (`tatami hot-swap`, `alt+s u`, the menu; it answers first and
+swaps on the next run-loop pass so the reply gets out), and the
+installer, which uses the command and falls back to a cold restart.
+
+1. Preflight: `<current_exe> --version` must print `tatamid …` and a
+   `handoff <format>` line this build hands off to. A truncated file or
+   a build from before hot swap is refused before anything is touched.
+2. `state.json` is written, and the manifest (`handoff` next to the
+   socket, mode 0600, whole-file rename): format, version, the `enable`
+   flag and the layout as a `SavedState`, so a disabled `restore` does
+   not lose it.
+3. `exec` of the same path with `--adopt <manifest>`, the listening
+   socket as standard input (`Stdio::from(OwnedFd)`: the dup drops
+   close-on-exec, every other descriptor closes). All safe std:
+   `CommandExt::exec`, `UnixListener::from(OwnedFd)`. The socket keeps
+   listening across the exec, so a `tatami` sent meanwhile waits in the
+   backlog instead of being refused.
+4. The new image reads and deletes the manifest, adopts the listener
+   from standard input after checking it is bound to the socket path,
+   runs the ordinary start-up with the manifest's layout in place of
+   `state.json` (the restore matcher finds every window by pid and
+   window id), re-creates the AX observers, event tap and menu bar item
+   (the old ones died with the old image's window-server connection),
+   and writes `ok <version>` to `swap-status`.
+
+If anything fails before the exec returns, the manifest is removed,
+`swap-status` says `failed <why>` and the old image keeps serving. The
+gap: signal handlers reset across `exec`, so a second signal arriving
+before the new image installs its own takes the default action; the
+installer sends one.
 
 `tatami` is a thin client: argv goes to the daemon as one `Request`,
 untouched, and is parsed by the same `Action` parser the keymap uses,
@@ -284,7 +323,9 @@ file is moved to `state.corrupt.json`; a newer version is refused.
 Save triggers: `Outcome::Dirty` saves 1 s after the last change (the
 clock restarts on every change); every 5 s a periodic save runs but skips if the serialized
 bytes are unchanged (compared before `saved_at` is stamped); `quit`,
-SIGTERM and SIGINT force a save after un-parking.
+SIGTERM and SIGINT force a save after un-parking; a hot swap saves
+before it execs. Start-up with a saved layout runs the restore in place
+of the first layout pass, so windows never see the interim tiling.
 
 A restore (start-up, or `checkpoint restore`) is a session:
 

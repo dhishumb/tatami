@@ -499,6 +499,7 @@ pub fn command_words(a: &Action) -> String {
         },
         Action::Help => "help".into(),
         Action::Quit => "quit".into(),
+        Action::HotSwap => "hot-swap".into(),
         Action::Ping => "ping".into(),
         Action::Version => "version".into(),
         Action::Subscribe(topics) => format!("subscribe {}", topics.join(" ")),

@@ -1387,12 +1387,54 @@ fn a_desk_restore_drops_slots_for_apps_that_are_gone_at_once() {
 }
 
 #[test]
-fn the_menu_lists_desks_with_the_present_one_checked() {
+fn the_menu_lists_profiles_desks_first_with_the_present_one_checked() {
     let (mut t, _h) = setup(vec![mon("m1", 0.0)], &[win("com.a", "a", 0.0)]);
+    let menu = t.r.menu_items();
+    assert!(menu.iter().any(|m| m.title == "Profiles"));
     assert!(
-        !t.r.menu_items().iter().any(|m| m.title == "Desks"),
-        "no desks, no section"
+        menu.iter().any(|m| m.command == ["profile", "save-as"]),
+        "Save profile… is always offered"
     );
+    assert!(
+        !menu.iter().any(|m| m.title == "Delete profile"),
+        "nothing to delete yet"
+    );
+    t.r.set_profiles(vec!["work".into()]);
+    let menu = t.r.menu_items();
+    assert!(
+        menu.iter()
+            .any(|m| m.command == ["profile", "restore", "work"])
+    );
+    let del = menu.iter().find(|m| m.title == "Delete profile").unwrap();
+    assert_eq!(del.children[0].command, ["profile", "delete", "work"]);
+    // "Save profile…" asks for the name on the sheet; typed keys are the
+    // name, Enter saves under it, and the sheet goes away.
+    t.ok("profile save-as");
+    assert!(t.r.prompt.is_some());
+    let down = |code: u16| RawKeyEvent::Down {
+        keycode: code,
+        mods: Mods::default(),
+        repeat: false,
+    };
+    for k in [13, 31, 15, 40] {
+        assert_eq!(t.key(down(k)), KeyDisposition::Swallow); // w o r k
+    }
+    assert_eq!(t.r.prompt.as_ref().unwrap().text, "work");
+    assert_eq!(t.key(down(36)), KeyDisposition::Swallow); // Enter
+    t.drain();
+    assert!(t.r.prompt.is_none());
+    assert!(t.out.iter().any(|o| matches!(
+        o,
+        Outcome::Profile(tatami_protocol::ProfileCmd::Save(Some(n))) if n == "work"
+    )));
+    // Esc drops it without a save.
+    t.out.clear();
+    t.ok("profile save-as");
+    assert_eq!(t.key(down(13)), KeyDisposition::Swallow);
+    assert_eq!(t.key(down(53)), KeyDisposition::Swallow); // Esc
+    t.drain();
+    assert!(t.r.prompt.is_none());
+    assert!(!t.out.iter().any(|o| matches!(o, Outcome::Profile(_))));
     let here = t.r.desk_id();
     t.r.set_desks(vec![
         tatami_state::DeskInfo {
@@ -1418,7 +1460,7 @@ fn the_menu_lists_desks_with_the_present_one_checked() {
         .iter()
         .find(|m| m.command == ["desk", "restore", "0123456789abcdef"])
         .unwrap();
-    assert!(!other.checked && other.title == "3 monitors: A, B, C");
+    assert!(!other.checked && other.title == "Default · 3 monitors: A, B, C");
     let args: Vec<String> = vec!["desk".into(), "list".into()];
     let (resp, out) = t.r.handle_request(&args, t.now);
     assert!(resp.ok && out.contains(&Outcome::Desk(tatami_protocol::DeskCmd::List)));
@@ -1488,13 +1530,9 @@ fn requests_ping_quit_exec_and_daemon_words() {
     assert!(out.contains(&Outcome::Exec("open -a Mail".into())));
     let (_, out) = t.r.handle_request(&args("reload-config"), t.now);
     assert!(out.contains(&Outcome::ReloadConfig));
-    let (resp, out) = t.r.handle_request(&args("checkpoint save"), t.now);
+    let (resp, out) = t.r.handle_request(&args("profile save"), t.now);
     assert!(resp.ok, "{resp:?}");
-    assert!(
-        out.contains(&Outcome::Checkpoint(tatami_protocol::CheckpointCmd::Save(
-            None
-        )))
-    );
+    assert!(out.contains(&Outcome::Profile(tatami_protocol::ProfileCmd::Save(None))));
     let (resp, _) = t.r.handle_request(&args("frobnicate"), t.now);
     assert!(!resp.ok);
     let (res, _) = t.r.run_actions(
@@ -1775,18 +1813,18 @@ fn restore_keeps_a_rule_floated_window_floating_even_from_a_tiled_slot() {
 }
 
 #[test]
-fn checkpoint_from_a_key_is_handed_to_the_daemon() {
+fn a_profile_save_from_a_key_is_handed_to_the_daemon() {
     let (mut t, _h) = setup(vec![mon("m1", 0.0)], &[win("com.a", "a", 0.0)]);
     let (res, out) = t.r.run_actions(
-        &[tatami_protocol::Action::Checkpoint(
-            tatami_protocol::CheckpointCmd::Save(Some("work".into())),
+        &[tatami_protocol::Action::Profile(
+            tatami_protocol::ProfileCmd::Save(Some("work".into())),
         )],
         t.now,
     );
     assert!(res.is_ok(), "{res:?}");
     assert!(out.iter().any(|o| matches!(
         o,
-        Outcome::Checkpoint(tatami_protocol::CheckpointCmd::Save(Some(n))) if n == "work"
+        Outcome::Profile(tatami_protocol::ProfileCmd::Save(Some(n))) if n == "work"
     )));
 }
 

@@ -291,7 +291,7 @@ fn de_assignments<'de, D: serde::Deserializer<'de>>(
 pub struct Restore {
     /// Put windows back where they were after a restart or crash.
     pub enabled: bool,
-    /// Relaunch apps that were running at the checkpoint.
+    /// Relaunch apps that were running when the layout was saved.
     pub launch_apps: bool,
     /// Stop waiting for relaunched apps' windows after this long.
     pub timeout_s: u64,
@@ -910,7 +910,7 @@ preset = "tatami"
             "fullscreen",
             "enable toggle",
             "focus-monitor next",
-            "checkpoint save",
+            "profile save",
             "swap dfs-next",
             "exec-and-forget open -a Terminal",
         ] {

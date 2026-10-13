@@ -150,7 +150,7 @@ until `Esc` or `Enter`; the others leave after one.
 | `alt+w` + | **workspaces**: `h`/`l` previous/next, `n`/`p` next/previous monitor, `m` move this workspace to the next monitor, `1-9` |
 | `alt+m` + (sticky) | **move**: `hjkl` move, `HJKL` move onto the monitor in that direction, `n` swap with the next tile, `1-9` move to workspace N |
 | `alt+r` + (sticky) | **resize**: `h`/`l` width, `j`/`k` height, `-`/`+` smart (along the container's axis), `=` balance |
-| `alt+s` + | **service**: `r` reload config, `f` flatten the workspace, `b` balance, `c` save a checkpoint, `e` tiling on/off, `u` hot-swap to the installed build, `q` quit |
+| `alt+s` + | **service**: `r` reload config, `f` flatten the workspace, `b` balance, `c` save a profile named by the time, `e` tiling on/off, `u` hot-swap to the installed build, `q` quit |
 
 Unbound Alt chords pass through to the app. Inside a mode every key is
 captured until you leave. A chord that cannot act (nothing to the left,
@@ -265,8 +265,9 @@ The grid icon shows the visible workspace of the monitor under the
 pointer and the active mode (`[2] RESIZE`). Its menu lists every
 monitor's workspaces (the visible one checked, the focused monitor
 marked) to switch with a click, and the service actions: show keys,
-balance, flatten, tiling on/off, save checkpoint, reload config, edit
-config, start at login (checked when the launchd agent is installed),
+balance, flatten, tiling on/off, the profiles (see "Layouts that
+survive a restart"), reload config, edit config, start at login (checked
+when the launchd agent is installed),
 hot-swap to the installed build, quit. `enable toggle` (`alt+s e`) stops
 managing without quitting: every window is un-parked and left alone
 until you turn it back on. "Edit config…" (`tatami edit-config`) opens
@@ -357,16 +358,27 @@ appear. Unmatched windows take a normal slot; empty slots are dropped
 after `restore.timeout_s`. `restore.launch_apps = false` turns off the
 relaunching; `restore.ignore` lists bundle ids never to relaunch.
 
-Named layouts:
+### Profiles
+
+A profile is a named layout. The menu bar item lists them under
+**Profiles**: first the **Default** ones, which are the desks below (one
+per set of monitors, kept up to date by itself, the present one
+checked), then the named ones. Picking any applies its layout to the
+monitors present. **Save profile…** asks for the name on the sheet:
+type it (letters, digits, `-`, `_`), `Enter` saves the live layout
+under it (a profile of that name is replaced), `Esc` cancels.
+**Delete profile** lists them to remove. From a shell:
 
 ```sh
-tatami checkpoint save work       # ~/.local/state/tatami/checkpoints/work.json
-tatami checkpoint list
-tatami checkpoint restore work    # re-slot live windows, launch what is missing
-tatami checkpoint delete work
+tatami profile save work          # ~/.local/state/tatami/profiles/work.json
+tatami profile list
+tatami profile restore work       # re-slot live windows, launch what is missing
+tatami profile delete work
 ```
 
-`alt+s c` saves one named by the time.
+`alt+s c` saves one named by the time. (`checkpoint` still works as the
+old name of the command; the files moved from `checkpoints/` to
+`profiles/` on first start.)
 
 ### Desks: two monitors at work, three at home
 
@@ -386,10 +398,10 @@ that desk from then on. At start-up, if the monitors present are not the
 ones `state.json` was saved on but their desk has a file, that file is
 restored instead.
 
-The menu bar item lists every saved desk under **Desks**, the present
-one checked; picking one applies its layout to the monitors present (a
-desk saved on three monitors maps onto two by uuid, then name, then
-size). From a shell:
+The menu bar item lists every saved desk under **Profiles** as
+`Default · <monitors>`, the present one checked; picking one applies
+its layout to the monitors present (a desk saved on three monitors maps
+onto two by uuid, then name, then size). From a shell:
 
 ```sh
 tatami desk list                  # id, name (monitors left to right), when saved; * = present
@@ -541,6 +553,6 @@ cargo run -p tatami-platform --example probe -- windows     # what Accessibility
 ```sh
 tatami service uninstall
 rm ~/.local/bin/{tatamid,tatami}
-rm -rf ~/.config/tatami ~/.local/state/tatami    # config, layouts, checkpoints, log
+rm -rf ~/.config/tatami ~/.local/state/tatami    # config, layouts, profiles, log
 security delete-identity -c tatami-codesign      # optional: the signing identity
 ```

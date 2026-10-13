@@ -101,7 +101,7 @@ fn match_input(w: &Window) -> MatchInput<'_> {
 }
 
 impl<P: Platform> Reactor<P> {
-    /// Run a restore session against the live state (`checkpoint restore`):
+    /// Run a restore session against the live state (`profile restore`):
     /// rebuild the saved trees with placeholders, re-slot every managed
     /// window that matches a spec, launch missing apps, and put windows that
     /// match nothing on their monitor's visible workspace.

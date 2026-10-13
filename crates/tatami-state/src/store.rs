@@ -81,8 +81,8 @@ pub fn load(path: &Path) -> Result<Option<SavedState>, StoreError> {
     Ok(Some(state))
 }
 
-/// Names of saved checkpoints, newest first.
-pub fn list_checkpoints(dir: &Path) -> Vec<(String, std::time::SystemTime)> {
+/// Names of saved profiles, newest first.
+pub fn list_profiles(dir: &Path) -> Vec<(String, std::time::SystemTime)> {
     let Ok(rd) = fs::read_dir(dir) else {
         return Vec::new();
     };
@@ -172,7 +172,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(20));
         save(&dir.path().join("new.json"), &sample()).unwrap();
         fs::write(dir.path().join("notes.txt"), b"x").unwrap();
-        let names: Vec<_> = list_checkpoints(dir.path())
+        let names: Vec<_> = list_profiles(dir.path())
             .into_iter()
             .map(|(n, _)| n)
             .collect();

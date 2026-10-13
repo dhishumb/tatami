@@ -208,8 +208,11 @@ pub enum Toggle {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum CheckpointCmd {
+pub enum ProfileCmd {
+    /// `None`: named by the time.
     Save(Option<String>),
+    /// Ask for the name (the menu's "Save profile…").
+    SaveAsk,
     Restore(String),
     List,
     Delete(String),
@@ -317,7 +320,7 @@ pub enum Action {
         binding: String,
         mode: Option<String>,
     },
-    Checkpoint(CheckpointCmd),
+    Profile(ProfileCmd),
     Desk(DeskCmd),
     /// Pin the which-key sheet for the current level.
     Help,
@@ -610,17 +613,18 @@ impl Action {
                     ));
                 }
             }),
-            "checkpoint" => Action::Checkpoint(match pos.as_slice() {
-                [] => CheckpointCmd::Save(None),
-                [s] if s == "list" => CheckpointCmd::List,
-                [s] if s == "save" => CheckpointCmd::Save(None),
-                [s, n] if s == "save" => CheckpointCmd::Save(Some(n.clone())),
-                [s, n] if s == "restore" => CheckpointCmd::Restore(n.clone()),
-                [s, n] if s == "delete" => CheckpointCmd::Delete(n.clone()),
+            "profile" | "checkpoint" => Action::Profile(match pos.as_slice() {
+                [] => ProfileCmd::Save(None),
+                [s] if s == "list" => ProfileCmd::List,
+                [s] if s == "save" => ProfileCmd::Save(None),
+                [s] if s == "save-as" => ProfileCmd::SaveAsk,
+                [s, n] if s == "save" => ProfileCmd::Save(Some(n.clone())),
+                [s, n] if s == "restore" => ProfileCmd::Restore(n.clone()),
+                [s, n] if s == "delete" => ProfileCmd::Delete(n.clone()),
                 _ => {
                     return Err(usage(
                         cmd,
-                        "usage: checkpoint [save [name] | restore <name> | list | delete <name>]",
+                        "usage: profile [save [name] | save-as | restore <name> | list | delete <name>]",
                     ));
                 }
             }),
@@ -906,18 +910,17 @@ mod tests {
                 mode: Some("main".into())
             }
         );
-        assert_eq!(
-            p("checkpoint"),
-            Action::Checkpoint(CheckpointCmd::Save(None))
-        );
+        assert_eq!(p("checkpoint"), Action::Profile(ProfileCmd::Save(None)));
         assert_eq!(
             p("checkpoint save work"),
-            Action::Checkpoint(CheckpointCmd::Save(Some("work".into())))
+            Action::Profile(ProfileCmd::Save(Some("work".into())))
         );
         assert_eq!(
             p("checkpoint restore work"),
-            Action::Checkpoint(CheckpointCmd::Restore("work".into()))
+            Action::Profile(ProfileCmd::Restore("work".into()))
         );
+        assert_eq!(p("profile save-as"), Action::Profile(ProfileCmd::SaveAsk));
+        assert_eq!(p("profile list"), p("checkpoint list"));
         assert_eq!(
             p("subscribe workspace mode"),
             Action::Subscribe(vec!["workspace".into(), "mode".into()])

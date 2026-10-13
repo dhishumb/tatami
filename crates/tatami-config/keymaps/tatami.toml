@@ -17,7 +17,7 @@
 # too. Keys are where they sit on a US keyboard, whatever the input
 # source, so "?" means shift+/ and "+" means shift+=. Commands are
 # AeroSpace's words (`focus left`, `move-node-to-workspace 3`) plus
-# `normal`, `help`, `checkpoint` and `quit`; a line may chain several
+# `normal`, `help`, `profile` and `quit`; a line may chain several
 # with `;`.
 #
 # Alt is the leader. Outside a mode only alt chords are looked at, and
@@ -160,7 +160,7 @@
 "r" = ["reload-config", "normal"]
 "f" = ["flatten-workspace-tree", "normal"]
 "b" = ["balance-sizes", "normal"]
-"c" = ["checkpoint save", "normal"]
+"c" = ["profile save", "normal"]              # named by the time; the menu's "Save profile…" asks for a name
 "e" = ["enable toggle", "normal"]
 "u" = ["hot-swap", "normal"]                      # upgrade in place to the installed tatamid
 "q" = ["quit", "normal"]

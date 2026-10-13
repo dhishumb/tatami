@@ -15,7 +15,7 @@ use std::path::Path;
 use serde::Deserialize;
 use tatami_keymap::{KeyChord, Keymap, ModeAction, Mods};
 use tatami_protocol::Action;
-use tatami_protocol::action::{CheckpointCmd, DeskCmd, ResizeDelta, SplitArg, Toggle};
+use tatami_protocol::action::{DeskCmd, ProfileCmd, ResizeDelta, SplitArg, Toggle};
 use tatami_protocol::{LayoutArg, MonitorTarget, ResizeDim, WorkspaceTarget};
 
 /// `[(chord, command lines)]`, in file order.
@@ -496,12 +496,13 @@ pub fn command_words(a: &Action) -> String {
             DeskCmd::Restore(id) => format!("desk restore {id}"),
             DeskCmd::Delete(id) => format!("desk delete {id}"),
         },
-        Action::Checkpoint(c) => match c {
-            CheckpointCmd::Save(None) => "checkpoint save".into(),
-            CheckpointCmd::Save(Some(n)) => format!("checkpoint save {n}"),
-            CheckpointCmd::Restore(n) => format!("checkpoint restore {n}"),
-            CheckpointCmd::List => "checkpoint list".into(),
-            CheckpointCmd::Delete(n) => format!("checkpoint delete {n}"),
+        Action::Profile(c) => match c {
+            ProfileCmd::Save(None) => "profile save".into(),
+            ProfileCmd::Save(Some(n)) => format!("profile save {n}"),
+            ProfileCmd::SaveAsk => "profile save-as".into(),
+            ProfileCmd::Restore(n) => format!("profile restore {n}"),
+            ProfileCmd::List => "profile list".into(),
+            ProfileCmd::Delete(n) => format!("profile delete {n}"),
         },
         Action::Help => "help".into(),
         Action::Quit => "quit".into(),

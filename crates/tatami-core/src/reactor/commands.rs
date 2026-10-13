@@ -2,7 +2,7 @@
 
 use serde_json::json;
 use tatami_keymap::KeyChord;
-use tatami_protocol::action::{ResizeDelta, SplitArg, Toggle};
+use tatami_protocol::action::{ProfileCmd, ResizeDelta, SplitArg, Toggle};
 use tatami_protocol::{
     Action, Axis, Dir, Layout, LayoutArg, MonitorTarget, Rect, ResizeDim, WindowHandle,
     WorkspaceTarget,
@@ -311,15 +311,23 @@ impl<P: Platform> Reactor<P> {
                 Ok(Reply::text(text))
             }
             Action::Desk(d) => {
-                // Same as checkpoints: the daemon answers the CLI; keys
+                // Same as profiles: the daemon answers the CLI; keys
                 // and the menu hand it over.
                 self.out.push(Outcome::Desk(d.clone()));
                 ok()
             }
-            Action::Checkpoint(c) => {
+            Action::Profile(ProfileCmd::SaveAsk) => {
+                self.prompt_show(
+                    "Save profile as",
+                    "type a name, letters, digits, - and _; a profile of that name is replaced",
+                    &["profile", "save"],
+                );
+                ok()
+            }
+            Action::Profile(c) => {
                 // The CLI path never gets here (the daemon answers it with
                 // the file names); keys and the menu hand it over.
-                self.out.push(Outcome::Checkpoint(c.clone()));
+                self.out.push(Outcome::Profile(c.clone()));
                 ok()
             }
             Action::Subscribe(_) => Err("subscribe is handled by the daemon".to_string()),

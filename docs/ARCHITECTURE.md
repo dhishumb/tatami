@@ -108,8 +108,8 @@ tatamid (all of the above)    tatami (protocol, config)
 - **config**: `config.toml` and the presets (`keymaps/tatami.toml` is
   embedded); builds `Keymap<Action>` once. A bad binding is a warning
   and is skipped; a TOML error keeps the config already loaded.
-- **state**: the `state.json` schema, atomic save/load, checkpoint
-  paths and the window matcher. Knows files, not trees.
+- **state**: the `state.json` schema, atomic save/load, profile and
+  desk paths and the window matcher. Knows files, not trees.
 - **core**: tree, layout, workspace model, parking, the `Platform`
   trait and the `Reactor`. Pure: no macOS types, tested against
   `fake::FakePlatform` (`--features fake`). Never depends on platform.
@@ -118,7 +118,8 @@ tatamid (all of the above)    tatami (protocol, config)
   libc: `geteuid`/`getpeereid` in `tatamid/src/ipc.rs`, `getuid` in
   `tatami/src/service.rs`.
 - **tatamid**: wiring: run loop, `step()`, autosave, IPC, signals,
-  config watcher, checkpoints. **tatami**: the CLI, `service`, `doctor`.
+  config watcher, profiles and desks. **tatami**: the CLI, `service`,
+  `doctor`.
 
 ## The reactor
 
@@ -298,7 +299,7 @@ workspaces hidden to the leftmost remaining one (per-monitor name
 clashes merge their windows), recomputes parking corners and forced
 assignments, relays out everything, broadcasts `monitors` and marks
 the state dirty. Re-attaching a display does not bring its old
-workspaces back; a checkpoint restore does.
+workspaces back; a profile restore does.
 
 ## Keys
 
@@ -362,7 +363,7 @@ different monitor sets. The menu lists the files (`set_desks`), the
 present one checked; `desk restore <id>` applies any desk to the
 monitors present through the same monitor mapping.
 
-A restore (start-up, or `checkpoint restore`) is a session:
+A restore (start-up, or `profile restore`) is a session:
 
 1. Map each saved monitor by uuid, else name, frame size, or main.
 2. Detach every tiled window; rebuild each saved tree with `Pending`
@@ -381,10 +382,16 @@ A restore (start-up, or `checkpoint restore`) is a session:
 
 A window that floats by rule or size stays floating even when saved in
 a tiled slot. A snapshot taken mid-session keeps the pending specs.
-Checkpoints are the same schema in `checkpoints/<name>.json`
-(`auto-<secs>` when unnamed), handled by the daemon: the CLI path is
-answered there directly, and a key or menu `checkpoint` reaches it as
-`Outcome::Checkpoint`.
+Profiles are the same schema in `profiles/<name>.json` (`auto-<secs>`
+when unnamed), handled by the daemon: the CLI path is answered there
+directly, and a key or menu `profile` reaches it as `Outcome::Profile`.
+The menu's "Save profile…" is `profile save-as`: the reactor opens a
+prompt on the sheet (`Prompt`, `prompt_key`), the key tap feeds it the
+typed name exactly as it feeds the overview's search, and Enter queues
+`profile save <name>`. No dialog: a modal `NSAlert` was tried and held
+the daemon's main thread for as long as it was open, with every
+request timing out meanwhile. `checkpoint` is an alias of `profile` and
+`checkpoints/` is renamed to `profiles/` once.
 
 ## IPC
 

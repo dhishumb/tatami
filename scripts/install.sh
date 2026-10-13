@@ -408,16 +408,17 @@ Next steps:
   - Config:          $CONFIG_FILE    (hot-reloaded; every option is in
                      it, commented; \`tatami edit-config\` or the menu opens it)
   - Menu bar:        the grid icon lists workspaces per monitor and the
-                     service actions (reload, edit config, checkpoint,
-                     enable, start at login, hot-swap, quit)
-  - Checkpoints:     tatami checkpoint save <name> | restore <name> | list
+                     profiles, and the service actions (reload, edit
+                     config, enable, start at login, hot-swap, quit)
+  - Profiles:        named layouts: Save profile… in the menu, or
+                     tatami profile save <name> | restore <name> | list
   - Desks:           one layout per set of monitors, switched when you dock
                      or undock; tatami desk list, or the menu
 
 Layout:
   $CONFIG_FILE      config (+ keymaps/ for your own presets)
   $STATE_DIR/state.json   live layout, saved a second after every change
-  $STATE_DIR/checkpoints/ named layouts
+  $STATE_DIR/profiles/    named layouts; desks/ one layout per set of monitors
   $STATE_DIR/log/tatamid.log
 
 Daemon: tatami service status | start | stop | restart     tatami quit (stays quit)

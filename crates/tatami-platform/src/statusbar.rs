@@ -131,22 +131,30 @@ impl Status {
             .target
             .get_or_insert_with(|| MenuTarget::new(mtm, self.shared.clone()))
             .clone();
-        *target.ivars().commands.borrow_mut() = items.iter().map(|i| i.command.clone()).collect();
-        let menu = (!items.is_empty()).then(|| build_menu(mtm, items, &target));
+        let mut commands = Vec::new();
+        let menu = (!items.is_empty()).then(|| build_menu(mtm, items, &target, &mut commands));
+        *target.ivars().commands.borrow_mut() = commands;
         self.item(mtm).setMenu(menu.as_deref());
     }
 }
 
-fn build_menu(mtm: MainThreadMarker, items: &[MenuItem], target: &MenuTarget) -> Retained<NSMenu> {
+/// Rows become items whose `tag` indexes `commands`; a row with children
+/// becomes a submenu (built the same way, into the same list).
+fn build_menu(
+    mtm: MainThreadMarker,
+    items: &[MenuItem],
+    target: &MenuTarget,
+    commands: &mut Vec<Vec<String>>,
+) -> Retained<NSMenu> {
     let menu = NSMenu::new(mtm);
     // Enabled state is exactly what we set: headers off, commands on.
     menu.setAutoenablesItems(false);
-    for (i, row) in items.iter().enumerate() {
+    for row in items {
         if row.separator {
             menu.addItem(&NSMenuItem::separatorItem(mtm));
             continue;
         }
-        let enabled = !row.command.is_empty();
+        let enabled = !row.command.is_empty() && row.children.is_empty();
         let action = enabled.then_some(sel!(menuAction:));
         // SAFETY: `menuAction:` is a valid selector implemented by `MenuTarget`.
         let it = unsafe {
@@ -157,8 +165,13 @@ fn build_menu(mtm: MainThreadMarker, items: &[MenuItem], target: &MenuTarget) ->
                 ns_string!(""),
             )
         };
-        it.setEnabled(enabled);
-        it.setTag(i as isize);
+        it.setEnabled(enabled || !row.children.is_empty());
+        it.setTag(commands.len() as isize);
+        commands.push(if enabled {
+            row.command.clone()
+        } else {
+            Vec::new()
+        });
         it.setIndentationLevel(row.indent.min(MAX_INDENT).into());
         if row.checked {
             it.setState(NSControlStateValueOn);
@@ -166,6 +179,10 @@ fn build_menu(mtm: MainThreadMarker, items: &[MenuItem], target: &MenuTarget) ->
         if enabled {
             // SAFETY: `target` responds to `menuAction:` and is kept alive by `Status`.
             unsafe { it.setTarget(Some(target)) };
+        }
+        if !row.children.is_empty() {
+            let sub = build_menu(mtm, &row.children, target, commands);
+            it.setSubmenu(Some(&sub));
         }
         menu.addItem(&it);
     }

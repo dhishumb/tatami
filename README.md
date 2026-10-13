@@ -22,7 +22,8 @@ What it does differently from AeroSpace:
   readable JSON a second after every change. On start, missing apps are
   relaunched and their windows slotted back as they appear. Each set of
   monitors (a desk) keeps its own layout: unplug at work, plug in at
-  home, and each arrangement comes back. Named checkpoints too.
+  home, and each arrangement comes back. Named profiles too, from the
+  menu.
 
 ## Install
 
@@ -69,7 +70,7 @@ Quit Rectangle, yabai or AeroSpace first; two managers fight.
 | `alt+w` | **workspaces**: `h`/`l` prev/next, `n`/`p` next/prev monitor, `m` move workspace to next monitor, `1-9` |
 | `alt+m` | **move** (sticky): `hjkl` move, `HJKL` move to monitor, `n` swap next, `1-9` move to workspace |
 | `alt+r` | **resize** (sticky): `h`/`l` width, `j`/`k` height, `-`/`+` smart, `=` balance |
-| `alt+s` | **service**: `r` reload config, `f` flatten, `c` checkpoint, `e` enable toggle, `b` balance, `u` hot-swap to the installed build, `q` quit |
+| `alt+s` | **service**: `r` reload config, `f` flatten, `c` save a profile, `e` enable toggle, `b` balance, `u` hot-swap to the installed build, `q` quit |
 
 Hold Alt alone for 300 ms and the sheet lists the direct chords; pause
 inside a group and it lists that group. `Esc`/`Enter` leave any mode.
@@ -133,7 +134,8 @@ Any command you can bind, you can run: `tatami focus left`,
 `tatami list-windows --json`, `tatami reload-config`, `tatami quit`.
 Names follow AeroSpace. Plus:
 
-- `tatami checkpoint save [name]` / `restore <name>` / `list` / `delete <name>`
+- `tatami profile save [name]` / `restore <name>` / `list` / `delete <name>`
+  (the menu's Profiles section: the Default ones are the desks)
 - `tatami desk list` / `restore <id>`: one layout per set of monitors,
   switched automatically on a dock or undock, also from the menu
 - `tatami subscribe workspace focus mode` streams JSON lines (for
@@ -154,8 +156,8 @@ widths); the layout then treats that size as a minimum.
 All state lives on the main thread's run loop; the socket, signals and
 config watcher are std threads that poke it.
 
-State: `~/.local/state/tatami/state.json`, checkpoints in
-`checkpoints/`. Socket: `$XDG_RUNTIME_DIR/tatami/sock` or
+State: `~/.local/state/tatami/state.json`, profiles in `profiles/`,
+desks in `desks/`. Socket: `$XDG_RUNTIME_DIR/tatami/sock` or
 `~/.tatami/run/sock`. Logs with `RUST_LOG=debug tatamid`.
 
 ## Development

@@ -12,6 +12,14 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
 
 ### Added
 
+- **Named profiles, from the menu.** The menu bar item has a Profiles
+  section: the Default entries are the desks (one layout per set of
+  monitors, kept by itself, the present one checked), the named ones
+  follow, picking any applies it, "Save profile…" asks for the name on
+  the sheet (type, Enter), and "Delete profile" lists them. Checkpoints were the
+  same thing without a way in from the menu or a name you could type;
+  `tatami profile …` replaces `tatami checkpoint …` (still accepted) and
+  the files move from `checkpoints/` to `profiles/` on first start.
 - **A layout per desk.** A laptop docked to two monitors at work and
   three at home kept one layout: unplugging folded the missing monitor's
   workspaces into the rest, plugging back in did not undo it, and a

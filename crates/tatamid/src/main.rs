@@ -30,7 +30,7 @@ use tatami_core::reactor::{Outcome, Reactor};
 use tatami_core::{KeyDisposition, PlatformEvent};
 use tatami_platform::MacPlatform;
 use tatami_platform::runloop::MainLoop;
-use tatami_protocol::{Action, CheckpointCmd, DeskCmd, IpcEvent, Response, socket_path};
+use tatami_protocol::{Action, DeskCmd, IpcEvent, ProfileCmd, Response, socket_path};
 use tatami_state::SavedState;
 
 use ipc::IpcMsg;
@@ -233,6 +233,18 @@ fn main() {
     }
     reactor.set_start_at_login(agent_installed());
     refresh_desks(&mut reactor);
+    // Profiles were "checkpoints" once; carry the directory over.
+    let (profiles, legacy) = (
+        tatami_state::profiles_dir(),
+        tatami_state::legacy_checkpoints_dir(),
+    );
+    if !profiles.exists() && legacy.exists() {
+        match std::fs::rename(&legacy, &profiles) {
+            Ok(()) => tracing::info!("moved checkpoints/ to profiles/"),
+            Err(e) => tracing::warn!("checkpoints/ not moved to profiles/: {e}"),
+        }
+    }
+    refresh_profiles(&mut reactor);
     let daemon = Rc::new(RefCell::new(Daemon {
         reactor,
         main_loop: main_loop.clone(),
@@ -477,9 +489,11 @@ fn handle_request(
     now: Instant,
 ) -> (Response, Vec<Outcome>) {
     match args.first().map(String::as_str) {
-        Some("checkpoint") => match Action::parse(args) {
-            Ok(Action::Checkpoint(c)) => checkpoint(r, c, now),
-            Ok(_) => (Response::err(0, "checkpoint: unexpected parse"), Vec::new()),
+        Some("profile") | Some("checkpoint") => match Action::parse(args) {
+            // "Save profile…" asks for the name on the sheet (the reactor's).
+            Ok(Action::Profile(ProfileCmd::SaveAsk)) => r.handle_request(args, now),
+            Ok(Action::Profile(c)) => profile(r, c, now),
+            Ok(_) => (Response::err(0, "profile: unexpected parse"), Vec::new()),
             Err(e) => (Response::err(0, e.to_string()), Vec::new()),
         },
         Some("desk") => match Action::parse(args) {
@@ -584,38 +598,55 @@ fn desk(r: &mut Reactor<MacPlatform>, cmd: DeskCmd, now: Instant) -> (Response, 
     }
 }
 
-fn checkpoint(
+/// The named profiles, as the reactor's menu shows them.
+fn refresh_profiles(r: &mut Reactor<MacPlatform>) {
+    let names = tatami_state::list_profiles(&tatami_state::profiles_dir())
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    r.set_profiles(names);
+}
+
+/// `profile save|restore|list|delete`: named layouts, the files the
+/// daemon owns. `save-as` never gets here (it asks first).
+fn profile(
     r: &mut Reactor<MacPlatform>,
-    cmd: CheckpointCmd,
+    cmd: ProfileCmd,
     now: Instant,
 ) -> (Response, Vec<Outcome>) {
-    let dir = tatami_state::checkpoints_dir();
+    let dir = tatami_state::profiles_dir();
     match cmd {
-        CheckpointCmd::Save(name) => {
+        ProfileCmd::SaveAsk => (
+            Response::err(0, "profile save-as is asked, not run"),
+            Vec::new(),
+        ),
+        ProfileCmd::Save(name) => {
             let name = name.unwrap_or_else(timestamp_name);
-            let Some(path) = tatami_state::checkpoint_path(&name) else {
+            let Some(path) = tatami_state::profile_path(&name) else {
                 return (
-                    Response::err(0, format!("bad checkpoint name `{name}`")),
+                    Response::err(0, format!("bad profile name `{name}`")),
                     Vec::new(),
                 );
             };
             let mut s = r.snapshot();
             s.saved_at = rfc3339_now();
-            match tatami_state::save(&path, &s) {
+            let res = tatami_state::save(&path, &s);
+            refresh_profiles(r);
+            match res {
                 Ok(()) => (
                     Response::ok(
                         0,
-                        format!("saved {} ({} windows)", path.display(), s.window_count()),
+                        format!("saved profile {name} ({} windows)", s.window_count()),
                     ),
                     Vec::new(),
                 ),
                 Err(e) => (Response::err(0, e.to_string()), Vec::new()),
             }
         }
-        CheckpointCmd::Restore(name) => {
-            let Some(path) = tatami_state::checkpoint_path(&name) else {
+        ProfileCmd::Restore(name) => {
+            let Some(path) = tatami_state::profile_path(&name) else {
                 return (
-                    Response::err(0, format!("bad checkpoint name `{name}`")),
+                    Response::err(0, format!("bad profile name `{name}`")),
                     Vec::new(),
                 );
             };
@@ -624,32 +655,34 @@ fn checkpoint(
                     let n = s.window_count();
                     let out = r.restore(s, now);
                     (
-                        Response::ok(0, format!("restoring {n} windows from {name}")),
+                        Response::ok(0, format!("restoring {n} windows from profile {name}")),
                         out,
                     )
                 }
-                Ok(None) => (
-                    Response::err(0, format!("no checkpoint `{name}`")),
-                    Vec::new(),
-                ),
+                Ok(None) => (Response::err(0, format!("no profile `{name}`")), Vec::new()),
                 Err(e) => (Response::err(0, e.to_string()), Vec::new()),
             }
         }
-        CheckpointCmd::List => {
-            let list = tatami_state::list_checkpoints(&dir);
+        ProfileCmd::List => {
+            let list = tatami_state::list_profiles(&dir);
             let text: Vec<String> = list.iter().map(|(n, _)| n.clone()).collect();
             let data = serde_json::json!(text);
             (Response::with_data(0, text.join("\n"), data), Vec::new())
         }
-        CheckpointCmd::Delete(name) => {
-            let Some(path) = tatami_state::checkpoint_path(&name) else {
+        ProfileCmd::Delete(name) => {
+            let Some(path) = tatami_state::profile_path(&name) else {
                 return (
-                    Response::err(0, format!("bad checkpoint name `{name}`")),
+                    Response::err(0, format!("bad profile name `{name}`")),
                     Vec::new(),
                 );
             };
-            match std::fs::remove_file(&path) {
-                Ok(()) => (Response::ok(0, format!("deleted {name}")), Vec::new()),
+            let res = std::fs::remove_file(&path);
+            refresh_profiles(r);
+            match res {
+                Ok(()) => (
+                    Response::ok(0, format!("deleted profile {name}")),
+                    Vec::new(),
+                ),
                 Err(e) => (
                     Response::err(0, format!("{}: {e}", path.display())),
                     Vec::new(),
@@ -813,15 +846,16 @@ impl Daemon {
                 // periodic save bounds the wait under continuous change.
                 Outcome::Dirty => self.dirty_since = Some(now),
                 Outcome::Broadcast(ev) => self.broadcast(ev),
-                Outcome::Checkpoint(cmd) => {
-                    let (resp, more) = checkpoint(&mut self.reactor, cmd, now);
+                Outcome::Profile(cmd) => {
+                    let (resp, more) = profile(&mut self.reactor, cmd, now);
                     if resp.ok {
                         tracing::info!("{}", resp.stdout);
                     } else {
-                        tracing::warn!("checkpoint: {}", resp.error);
+                        tracing::warn!("profile: {}", resp.error);
                     }
                     self.handle_outcomes(more, now);
                 }
+
                 Outcome::Exec(cmd) => {
                     if let Err(e) = std::process::Command::new("/bin/sh")
                         .arg("-c")

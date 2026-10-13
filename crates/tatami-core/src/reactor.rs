@@ -43,8 +43,9 @@ use restore::RestoreSession;
 /// What the daemon must do after a reactor step.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
-    /// `checkpoint …` from a key or the menu; the daemon owns the files.
-    Checkpoint(tatami_protocol::CheckpointCmd),
+    /// `profile …` from a key or the menu; the daemon owns the files.
+    Profile(tatami_protocol::ProfileCmd),
+
     /// Layout state changed; persist it (the daemon debounces).
     Dirty,
     Broadcast(IpcEvent),
@@ -206,6 +207,8 @@ pub struct Reactor<P: Platform> {
     overview_sel: usize,
     /// Monitors the overview shows expanded (workspaces and windows).
     overview_open: Vec<MonitorId>,
+    /// A line of text being asked for on the sheet (a profile's name).
+    prompt: Option<Prompt>,
     /// A tiled window the user is moving by hand, and when to act on it.
     drag: Option<(WindowId, Instant)>,
     /// Windows whose app refused a frame write outright; floated at the end of the step.
@@ -219,6 +222,8 @@ pub struct Reactor<P: Platform> {
     start_at_login: bool,
     /// Saved desks, for the menu (the daemon reads the files).
     desks: Vec<tatami_state::DeskInfo>,
+    /// Named profiles, for the menu (the daemon reads the files).
+    profiles: Vec<String>,
     dirty: bool,
     out: Vec<Outcome>,
     scratch: Vec<Placement>,
@@ -322,6 +327,18 @@ fn creator<'a>(
 }
 
 /// `r` re-centred inside `area` when its centre is outside, shrunk to fit.
+/// A question on the sheet: `text` is typed with the keys the tap
+/// captures, Enter runs `command` with the text as its last word, Esc
+/// drops it. No dialog: a modal would hold the daemon's main thread, and
+/// an activating window would steal focus from the app you are in.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(crate) struct Prompt {
+    title: String,
+    hint: String,
+    text: String,
+    command: Vec<String>,
+}
+
 /// A line on the overview the highlight can rest on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum OverviewItem {
@@ -435,8 +452,10 @@ impl<P: Platform> Reactor<P> {
             overview_query: None,
             overview_sel: 0,
             overview_open: Vec::new(),
+            prompt: None,
             start_at_login: false,
             desks: Vec::new(),
+            profiles: Vec::new(),
             drag: None,
             unmanageable: Vec::new(),
             next_app_scan: now + APP_SCAN_EVERY,
@@ -487,6 +506,14 @@ impl<P: Platform> Reactor<P> {
     pub fn set_desks(&mut self, desks: Vec<tatami_state::DeskInfo>) {
         if self.desks != desks {
             self.desks = desks;
+            self.status_dirty = true;
+        }
+    }
+
+    /// The named profiles, for the menu; the daemon lists the files.
+    pub fn set_profiles(&mut self, names: Vec<String>) {
+        if self.profiles != names {
+            self.profiles = names;
             self.status_dirty = true;
         }
     }
@@ -611,6 +638,13 @@ impl<P: Platform> Reactor<P> {
     /// Runs only the KeyState; queues resulting actions. Called from inside
     /// the event tap: never touches the platform.
     pub fn on_key(&mut self, raw: RawKeyEvent, now: Instant) -> KeyDisposition {
+        if self.prompt.is_some()
+            && let RawKeyEvent::Down { keycode, mods, .. } = raw
+            && !mods.ctrl
+            && !mods.cmd
+        {
+            return self.prompt_key(keycode, mods, now);
+        }
         if self.overview
             && let RawKeyEvent::Down { keycode, mods, .. } = raw
             && !mods.ctrl
@@ -909,19 +943,35 @@ impl<P: Platform> Reactor<P> {
             }
         }
         rows.push(MenuItem::separator());
-        // Desks: one layout per set of monitors, the present one checked.
-        // Picking one applies its layout to the monitors present.
-        if !self.desks.is_empty() {
-            let here = self.desk_id();
-            rows.push(MenuItem::header("Desks"));
-            for d in &self.desks {
-                let mut item = MenuItem::action(d.name.clone(), &["desk", "restore", &d.id]);
-                item.checked = d.id == here;
-                item.indent = 1;
-                rows.push(item);
-            }
-            rows.push(MenuItem::separator());
+        // Profiles: the default ones are the desks, one layout per set of
+        // monitors kept by itself, the present one checked; then the
+        // named ones. Picking any applies its layout to the monitors
+        // present.
+        rows.push(MenuItem::header("Profiles"));
+        let here = self.desk_id();
+        for d in &self.desks {
+            let mut item =
+                MenuItem::action(format!("Default · {}", d.name), &["desk", "restore", &d.id]);
+            item.checked = d.id == here;
+            item.indent = 1;
+            rows.push(item);
         }
+        for name in &self.profiles {
+            let mut item = MenuItem::action(name.clone(), &["profile", "restore", name]);
+            item.indent = 1;
+            rows.push(item);
+        }
+        rows.push(MenuItem::action("Save profile…", &["profile", "save-as"]));
+        if !self.profiles.is_empty() {
+            let mut del = MenuItem::header("Delete profile");
+            del.children = self
+                .profiles
+                .iter()
+                .map(|n| MenuItem::action(n.clone(), &["profile", "delete", n]))
+                .collect();
+            rows.push(del);
+        }
+        rows.push(MenuItem::separator());
         if let Some(m) = self.keys.mode() {
             rows.push(MenuItem::action(
                 format!("Leave {m} mode"),
@@ -938,7 +988,6 @@ impl<P: Platform> Reactor<P> {
         en.checked = self.enabled;
         rows.push(en);
         rows.push(MenuItem::separator());
-        rows.push(MenuItem::action("Save checkpoint", &["checkpoint", "save"]));
         rows.push(MenuItem::action("Reload config", &["reload-config"]));
         rows.push(MenuItem::action("Edit config…", &["edit-config"]));
         rows.push(MenuItem::separator());
@@ -1206,6 +1255,94 @@ impl<P: Platform> Reactor<P> {
             }
         }
         out
+    }
+
+    /// Open a prompt on the sheet; Enter runs `command` plus the text.
+    pub(super) fn prompt_show(&mut self, title: &str, hint: &str, command: &[&str]) {
+        self.overview = false;
+        self.prompt = Some(Prompt {
+            title: title.into(),
+            hint: hint.into(),
+            text: String::new(),
+            command: command.iter().map(|s| s.to_string()).collect(),
+        });
+        let ch = self.keys.pin();
+        self.set_overlay(ch);
+        self.set_overlay(OverlayChange::Show(Level::Top));
+    }
+
+    /// A key while a prompt is up: letters, digits, `-`, `_` and space
+    /// are the text (shift makes capitals), Backspace edits, Enter runs
+    /// the command with a non-empty text, Esc cancels. Everything else is
+    /// swallowed: the sheet has the keyboard until it is answered.
+    fn prompt_key(&mut self, keycode: u16, mods: Mods, now: Instant) -> KeyDisposition {
+        let close = |r: &mut Self| {
+            r.prompt = None;
+            let ch = r.keys.enter_mode(None, now);
+            r.set_overlay(ch);
+        };
+        match keyname_from_keycode(keycode) {
+            Some(KeyName::Escape) => close(self),
+            Some(KeyName::Enter) => {
+                let Some(p) = self.prompt.as_ref() else {
+                    return KeyDisposition::Swallow;
+                };
+                let text = p.text.trim().to_string();
+                if text.is_empty() {
+                    return KeyDisposition::Swallow;
+                }
+                let mut argv = p.command.clone();
+                argv.push(text);
+                match Action::parse(&argv) {
+                    Ok(a) => self.key_queue.push(a),
+                    Err(e) => tracing::warn!("prompt: {e}"),
+                }
+                close(self);
+            }
+            Some(KeyName::Backspace) => {
+                if let Some(p) = self.prompt.as_mut() {
+                    p.text.pop();
+                }
+                self.set_overlay(OverlayChange::Show(Level::Top));
+            }
+            Some(KeyName::Space) => {
+                if let Some(p) = self.prompt.as_mut()
+                    && !p.text.is_empty()
+                {
+                    p.text.push(' ');
+                }
+                self.set_overlay(OverlayChange::Show(Level::Top));
+            }
+            Some(KeyName::Char(c)) if c.is_ascii_alphanumeric() || c == '-' || c == '_' => {
+                let c = if mods.shift {
+                    c.to_ascii_uppercase()
+                } else {
+                    c
+                };
+                if let Some(p) = self.prompt.as_mut() {
+                    p.text.push(c);
+                }
+                self.set_overlay(OverlayChange::Show(Level::Top));
+            }
+            _ => {}
+        }
+        KeyDisposition::Swallow
+    }
+
+    fn prompt_content(&self, p: &Prompt) -> OverlayContent {
+        OverlayContent {
+            title: format!("{}: {}▏", p.title, p.text),
+            exit_hint: "Enter  save  ·  Esc  cancel".into(),
+            rows: vec![OverlayRow {
+                key: String::new(),
+                desc: p.hint.clone(),
+                prefix: true,
+                command: Vec::new(),
+            }],
+            columns: Some(1),
+            max_desc: Some(80),
+            list: true,
+        }
     }
 
     /// The desk as an outline: every monitor (left to right) as a header,
@@ -1520,7 +1657,11 @@ impl<P: Platform> Reactor<P> {
             OverlayChange::Keep => return,
             OverlayChange::Hide => {
                 self.overview = false;
+                self.prompt = None;
                 None
+            }
+            OverlayChange::Show(_) if self.prompt.is_some() => {
+                self.prompt.as_ref().map(|p| self.prompt_content(p))
             }
             OverlayChange::Show(_) if self.overview => Some(self.overview_content()),
             OverlayChange::Show(level) => Some(self.overlay_content(&level)),

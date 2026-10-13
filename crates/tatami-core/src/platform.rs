@@ -126,6 +126,8 @@ pub struct MenuItem {
     pub separator: bool,
     /// Indent level for grouping (workspaces under a monitor header).
     pub indent: u8,
+    /// A submenu; the row itself then has no command.
+    pub children: Vec<MenuItem>,
 }
 
 impl MenuItem {

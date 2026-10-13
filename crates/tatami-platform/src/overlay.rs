@@ -28,9 +28,12 @@ use tatami_core::{MonitorInfo, OverlayContent, PlatformEvent};
 use crate::Shared;
 
 const FONT_SIZE: CGFloat = 13.0;
+/// A list is read line by line, from further away than a key sheet.
+const LIST_FONT_SIZE: CGFloat = 16.0;
 const PAD: CGFloat = 12.0;
 const BOTTOM_GAP: CGFloat = 24.0;
 const ARROW: &str = " → ";
+const LIST_SEP: &str = "  ";
 const GAP: usize = 3;
 const DESC_MAX: usize = 28;
 /// Horizontal padding an `NSTextField` label puts before its text.
@@ -139,7 +142,8 @@ pub(crate) fn compose(
         .max()
         .unwrap_or(0)
         .min(c.max_desc.unwrap_or(DESC_MAX));
-    let cell = key_w + width(ARROW) + desc_w;
+    let sep = if c.list { LIST_SEP } else { ARROW };
+    let cell = key_w + width(sep) + desc_w;
     let fit = (cols_chars + GAP) / (cell + GAP);
     let fit = c.columns.map_or(fit, |n| n.min(fit).max(1));
     let cols = pack(c.rows.len(), fit, max_rows);
@@ -167,7 +171,7 @@ pub(crate) fn compose(
             }
             out.pad(key_w - width(&row.key));
             out.push(Style::Key, &row.key);
-            out.push(Style::Dim, ARROW);
+            out.push(Style::Dim, sep);
             let desc = truncate(&row.desc, c.max_desc.unwrap_or(DESC_MAX));
             out.push(
                 if row.prefix {
@@ -279,12 +283,38 @@ impl SheetView {
     }
 }
 
+/// One monospaced size and its five styles.
+struct Type {
+    font: Retained<NSFont>,
+    attrs: [Attrs; 5],
+}
+
+impl Type {
+    fn new(size: CGFloat) -> Self {
+        // SAFETY: reading immutable framework constants.
+        let (regular, bold) = unsafe { (NSFontWeightRegular, NSFontWeightBold) };
+        let font = NSFont::monospacedSystemFontOfSize_weight(size, regular);
+        let bold = NSFont::monospacedSystemFontOfSize_weight(size, bold);
+        let attrs = [0, 1, 2, 3, 4].map(|i| {
+            attrs(
+                if i == Style::Title as usize {
+                    &bold
+                } else {
+                    &font
+                },
+                COLORS[i],
+            )
+        });
+        Self { font, attrs }
+    }
+}
+
 struct Sheet {
     panel: Retained<NSPanel>,
     view: Retained<SheetView>,
     label: Retained<NSTextField>,
-    font: Retained<NSFont>,
-    attrs: [Attrs; 5],
+    sheet_type: Type,
+    list_type: Type,
 }
 
 pub(crate) struct Overlay {
@@ -381,36 +411,28 @@ impl Sheet {
         panel.setContentView(Some(&view));
         view.addSubview(&label);
 
-        // SAFETY: reading immutable framework constants.
-        let (regular, bold) = unsafe { (NSFontWeightRegular, NSFontWeightBold) };
-        let font = NSFont::monospacedSystemFontOfSize_weight(FONT_SIZE, regular);
-        let bold = NSFont::monospacedSystemFontOfSize_weight(FONT_SIZE, bold);
-        let attrs = [0, 1, 2, 3, 4].map(|i| {
-            attrs(
-                if i == Style::Title as usize {
-                    &bold
-                } else {
-                    &font
-                },
-                COLORS[i],
-            )
-        });
         Self {
             panel,
             view,
             label,
-            font,
-            attrs,
+            sheet_type: Type::new(FONT_SIZE),
+            list_type: Type::new(LIST_FONT_SIZE),
         }
     }
 
     fn render(&self, content: &OverlayContent, monitor: &MonitorInfo) {
         let vis = monitor.visible;
-        let char_w = self.font.maximumAdvancement().width.max(1.0);
-        let line_h = self.font.ascender() - self.font.descender() + self.font.leading();
+        let Type { font, attrs } = if content.list {
+            &self.list_type
+        } else {
+            &self.sheet_type
+        };
+        let char_w = font.maximumAdvancement().width.max(1.0);
+        let line_h = font.ascender() - font.descender() + font.leading();
         let cols_chars = ((vis.w * 0.9 - 2.0 * PAD) / char_w).max(1.0) as usize;
-        // A third of the screen, minus the header line.
-        let max_rows = ((vis.h / 3.0 / line_h.max(1.0)) as usize).saturating_sub(1);
+        // A third of the screen (half for a list), minus the header line.
+        let share = if content.list { 2.0 } else { 3.0 };
+        let max_rows = ((vis.h / share / line_h.max(1.0)) as usize).saturating_sub(1);
 
         let text = NSMutableAttributedString::new();
         let (runs, layout) = compose(content, cols_chars, max_rows);
@@ -421,7 +443,7 @@ impl Sheet {
                 NSAttributedString::initWithString_attributes(
                     NSAttributedString::alloc(),
                     &NSString::from_str(&s),
-                    Some(&self.attrs[style as usize]),
+                    Some(&attrs[style as usize]),
                 )
             };
             text.appendAttributedString(&run);
@@ -499,6 +521,7 @@ mod tests {
             ],
             columns: None,
             max_desc: None,
+            list: false,
         };
         // Cell = 3 + 3 + 24 = 30; 63 chars fit two columns.
         let (runs, _) = compose(&c, 63, 10);
@@ -515,6 +538,28 @@ mod tests {
     }
 
     #[test]
+    fn a_list_has_no_arrows_and_keeps_its_rows_aligned() {
+        let c = OverlayContent {
+            title: "desk".into(),
+            exit_hint: String::new(),
+            rows: vec![
+                row("▾", "▶ 1  Display", true),
+                row("", "   workspace 1 *", true),
+                row("a", "  ▶ Code — lib.rs", false),
+            ],
+            columns: Some(1),
+            max_desc: Some(80),
+            list: true,
+        };
+        let text = plain(&compose(&c, 120, 20).0);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[1], "▾  ▶ 1  Display");
+        assert_eq!(lines[2], "      workspace 1 *");
+        assert_eq!(lines[3], "a    ▶ Code — lib.rs");
+        assert!(!text.contains('→'));
+    }
+
+    #[test]
     fn compose_truncates_long_descs() {
         let c = OverlayContent {
             title: "t".into(),
@@ -522,6 +567,7 @@ mod tests {
             rows: vec![row("a", &"x".repeat(40), false)],
             columns: None,
             max_desc: None,
+            list: false,
         };
         let text = plain(&compose(&c, 200, 10).0);
         let body = text.lines().nth(1).unwrap();
@@ -540,6 +586,7 @@ mod tests {
             rows,
             columns: Some(3),
             max_desc: None,
+            list: false,
         };
         let (runs, layout) = compose(&c, 200, 10);
         // 7 rows in 3 columns: [0,1,2] [3,4,5] [6].

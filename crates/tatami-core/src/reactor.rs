@@ -1046,12 +1046,22 @@ impl<P: Platform> Reactor<P> {
             let sel = if !searching && items.len() == self.overview_sel {
                 "▶ "
             } else {
-                ""
+                "  "
             };
             if !searching {
                 items.push(OverviewItem::Monitor(id));
             }
             let header_at = rows.len();
+            // A blank line between monitors; the marker column is fixed so
+            // nothing shifts as the highlight moves.
+            if i > 0 {
+                rows.push(OverlayRow {
+                    key: String::new(),
+                    desc: String::new(),
+                    prefix: true,
+                    command: Vec::new(),
+                });
+            }
             rows.push(OverlayRow {
                 key: if open { "▾" } else { "▸" }.into(),
                 desc: format!("{sel}{}  {}  ({count}){here}", i + 1, mon.info.name),
@@ -1067,7 +1077,7 @@ impl<P: Platform> Reactor<P> {
                 let Some(name) = self.model.name_of(ws) else {
                     continue;
                 };
-                let mark = if visible == Some(ws) { "*" } else { "" };
+                let mark = if visible == Some(ws) { " *" } else { "" };
                 let mut ws_rows = vec![OverlayRow {
                     key: String::new(),
                     desc: format!("   workspace {name}{mark}"),
@@ -1086,15 +1096,15 @@ impl<P: Platform> Reactor<P> {
                         continue;
                     }
                     let selected = items.len() == self.overview_sel;
-                    let key = match &self.overview_query {
-                        None => overview_letter(letters)
+                    let key = if searching {
+                        String::new()
+                    } else {
+                        overview_letter(letters)
                             .map(String::from)
-                            .unwrap_or_default(),
-                        Some(_) if selected => "▶".to_string(),
-                        Some(_) => String::new(),
+                            .unwrap_or_default()
                     };
                     letters += 1;
-                    let sel = if selected && !searching { "▶ " } else { "" };
+                    let sel = if selected { "  ▶ " } else { "    " };
                     let float = if m.w.kind == WindowKind::Floating {
                         "~ "
                     } else {
@@ -1216,6 +1226,7 @@ impl<P: Platform> Reactor<P> {
             rows,
             columns: Some(1),
             max_desc: Some(80),
+            list: true,
         }
     }
 
@@ -1255,6 +1266,7 @@ impl<P: Platform> Reactor<P> {
             rows,
             columns: None,
             max_desc: None,
+            list: false,
         }
     }
 

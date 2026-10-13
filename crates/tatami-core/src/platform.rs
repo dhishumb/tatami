@@ -177,6 +177,9 @@ pub struct OverlayContent {
     pub columns: Option<usize>,
     /// Description cut-off in characters (`None`: the sheet's default).
     pub max_desc: Option<usize>,
+    /// A list to read (the overview) rather than a sheet to glance at:
+    /// larger type, no arrows between key and text, up to half the screen.
+    pub list: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

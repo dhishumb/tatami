@@ -1755,7 +1755,7 @@ fn overview_is_an_outline_with_the_current_monitor_expanded() {
         .map(|r| format!("{}|{}\n", r.key, r.desc))
         .collect();
     assert!(
-        text.contains("▸|1  Display m1  (1)\n") && text.contains("▾|2  Display m2  (1) ◆"),
+        text.contains("▸|  1  Display m1  (1)\n") && text.contains("▾|  2  Display m2  (1) ◆"),
         "{text}"
     );
     assert_eq!(
@@ -1948,7 +1948,7 @@ fn overview_search_filters_the_windows_and_enter_focuses_the_highlighted_match()
     );
     assert!(
         rows.iter()
-            .any(|r| r.key == "▶" && r.desc.contains("gamma")),
+            .any(|r| r.key.is_empty() && r.desc.starts_with("  ▶ ") && r.desc.contains("gamma")),
         "{rows:?}"
     );
     assert!(!rows.iter().any(|r| r.desc.contains("alpha")), "{rows:?}");
@@ -2112,7 +2112,7 @@ fn overview_arrows_and_enter_work_without_a_search() {
     let (rows, _) = t.r.overview_rows();
     assert!(
         rows.iter()
-            .any(|r| r.key == "b" && r.desc.starts_with("▶ ")),
+            .any(|r| r.key == "b" && r.desc.starts_with("  ▶ ")),
         "{rows:?}"
     );
     let down = |code: u16| RawKeyEvent::Down {

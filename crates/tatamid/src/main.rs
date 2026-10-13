@@ -188,6 +188,7 @@ fn main() {
     if !enabled {
         reactor.set_enabled(false);
     }
+    reactor.set_start_at_login(agent_installed());
     let daemon = Rc::new(RefCell::new(Daemon {
         reactor,
         main_loop: main_loop.clone(),
@@ -254,6 +255,13 @@ fn listen(sock: PathBuf, tx: Sender<MainMsg>, wake: ipc::Waker, adopting: bool) 
     }
     match ipc::IpcServer::start(sock.clone(), tx, wake) {
         Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            // A daemon is already serving this user. Leave quietly with a
+            // clean exit: launchd restarts a job that fails, and a second
+            // tatamid respawning every ten seconds helps nobody.
+            tracing::error!("{e}; this one exits");
+            std::process::exit(0);
+        }
         Err(e) => {
             tracing::error!("cannot listen on {}: {e}", sock.display());
             std::process::exit(2);
@@ -269,6 +277,22 @@ fn init_logging() {
         .with_target(false)
         .compact()
         .init();
+}
+
+/// The launchd agent `tatami service install|enable` writes; its presence
+/// is what "start at login" means.
+fn agent_installed() -> bool {
+    std::env::var_os("HOME").is_some_and(|h| {
+        PathBuf::from(h)
+            .join("Library/LaunchAgents/com.vgupta.tatami.plist")
+            .exists()
+    })
+}
+
+/// The `tatami` CLI installed next to this binary.
+fn sibling_cli() -> Option<PathBuf> {
+    let cli = std::env::current_exe().ok()?.with_file_name("tatami");
+    cli.exists().then_some(cli)
 }
 
 fn load_config(path: &std::path::Path) -> tatami_config::Config {
@@ -615,7 +639,58 @@ impl Daemon {
                 Outcome::ReloadConfig => self.want_reload = true,
                 Outcome::Exit => self.want_exit = true,
                 Outcome::HotSwap => self.want_swap = true,
+                Outcome::EditConfig(editor) => self.edit_config(&editor),
+                Outcome::StartAtLogin(on) => {
+                    // The CLI next to us owns the launchd agent; run it and
+                    // believe the file system, not the exit code.
+                    match sibling_cli() {
+                        Some(cli) => {
+                            let out = Command::new(cli)
+                                .args(["service", if on { "enable" } else { "disable" }])
+                                .output();
+                            match out {
+                                Ok(o) if o.status.success() => {
+                                    tracing::info!("{}", String::from_utf8_lossy(&o.stdout).trim())
+                                }
+                                Ok(o) => tracing::warn!(
+                                    "start-at-login: {}",
+                                    String::from_utf8_lossy(&o.stderr).trim()
+                                ),
+                                Err(e) => tracing::warn!("start-at-login: {e}"),
+                            }
+                        }
+                        None => tracing::warn!("start-at-login: no `tatami` next to tatamid"),
+                    }
+                    self.reactor.set_start_at_login(agent_installed());
+                }
             }
+        }
+    }
+
+    /// `edit-config`: make sure there is a file to edit (the commented
+    /// template, every option at its default), then open it. `editor` is
+    /// `general.editor`; empty means TextEdit, which every Mac has.
+    fn edit_config(&self, editor: &str) {
+        let path = &self.config_path;
+        if !path.exists() {
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            match std::fs::write(path, tatami_config::CONFIG_TEMPLATE) {
+                Ok(()) => tracing::info!("wrote the config template to {}", path.display()),
+                Err(e) => {
+                    tracing::warn!("edit-config: cannot write {}: {e}", path.display());
+                    return;
+                }
+            }
+        }
+        let cmd = if editor.trim().is_empty() {
+            format!("open -t '{}'", path.display())
+        } else {
+            format!("{editor} '{}'", path.display())
+        };
+        if let Err(e) = Command::new("/bin/sh").arg("-c").arg(&cmd).spawn() {
+            tracing::warn!("edit-config: `{cmd}`: {e}");
         }
     }
 

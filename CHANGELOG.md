@@ -12,6 +12,28 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
 
 ### Added
 
+- **Start at login is a switch.** The installer turned it on with no
+  way to turn it off short of `tatami service uninstall`, which also
+  stops the daemon. "Start at login" in the menu bar item (checked when
+  the launchd agent is installed) and `tatami service enable|disable`
+  flip it without touching the running daemon; `tatami service
+  start|stop` run it under launchd.
+- **"Edit config…" always has a file to open.** The menu item ran
+  `open -t` on `~/.config/tatami/config.toml` and, with no file there,
+  TextEdit said so and nothing happened. `edit-config` (the menu,
+  `tatami edit-config`) first writes the template when the file is
+  missing, every option at its default with a comment, then opens it in
+  TextEdit or in `editor` under `[general]` (`"code"`, `"zed"`).
+  `tatami config-template` prints the same, and the installer seeds a
+  missing config from it. `[general] start_at_login`, which did nothing,
+  is gone.
+- **The install checks the daemon came up.** After installing the agent
+  the script waits for `tatami ping` and prints what it said (version,
+  Accessibility, counts); without Accessibility it says so and opens the
+  System Settings pane. `tatami ping` itself now answers in words
+  (`pong: tatamid 0.1.0, Accessibility granted, 8 windows on 6
+  workspaces`) instead of `pong`.
+- **The sheet is a little see-through** (84% instead of 94%).
 - **Upgrades hot-swap the daemon.** `scripts/install.sh --upgrade` used
   to quit the daemon (every hidden window came back on screen for a
   moment) and start the new build, which restored the layout. The daemon
@@ -95,6 +117,20 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
 
 ### Fixed
 
+- **Focusing a window from the overview no longer flips workspaces on
+  other monitors.** Raising a window activates its app, and macOS
+  reports the app's previous key window as focused first. When that
+  window was parked on a hidden workspace of another monitor (Chrome
+  with a window per monitor), the daemon took the report as a Cmd-tab
+  onto it and switched that workspace in, so an `alt+o` pick could
+  change what two monitors showed and leave the wrong window focused.
+  A focus report for a parked window of the app we just raised, within
+  a second, is now ignored and the asked-for window raised again; a
+  real Cmd-tab or Dock click a moment later still switches.
+- **`tatami quit` quits.** launchd's `KeepAlive` brought the daemon
+  straight back (every quit in the log was followed by a restore two
+  hundred milliseconds later). The agent now restarts a crash only;
+  `tatami service start` or the next login brings it back.
 - **Going to another monitor by keyboard sticks.** `alt+w n` and
   `alt+h/l` across an edge moved focus, but the next chord snapped back
   to the monitor under the pointer. The pointer now follows keyboard

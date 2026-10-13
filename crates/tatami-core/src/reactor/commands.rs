@@ -321,6 +321,24 @@ impl<P: Platform> Reactor<P> {
                 self.out.push(Outcome::Exit);
                 ok()
             }
+            Action::EditConfig => {
+                self.out
+                    .push(Outcome::EditConfig(self.cfg.general.editor.clone()));
+                ok()
+            }
+            Action::StartAtLogin(t) => {
+                let on = match t {
+                    Toggle::On => true,
+                    Toggle::Off => false,
+                    Toggle::Toggle => !self.start_at_login,
+                };
+                self.out.push(Outcome::StartAtLogin(on));
+                Ok(Reply::text(if on {
+                    "tatamid will start at login"
+                } else {
+                    "tatamid will not start at login"
+                }))
+            }
             Action::HotSwap => {
                 self.out.push(Outcome::HotSwap);
                 Ok(Reply::text(
@@ -328,7 +346,17 @@ impl<P: Platform> Reactor<P> {
                 ))
             }
             Action::Ping => Ok(Reply {
-                text: "pong".to_string(),
+                text: format!(
+                    "pong: tatamid {}, Accessibility {}, {} windows on {} workspaces",
+                    env!("CARGO_PKG_VERSION"),
+                    if self.trusted {
+                        "granted"
+                    } else {
+                        "NOT granted (System Settings → Privacy & Security → Accessibility → tatamid)"
+                    },
+                    self.wins.len(),
+                    self.workspaces.len()
+                ),
                 data: Some(json!({
                     "trusted": self.trusted,
                     "version": env!("CARGO_PKG_VERSION"),

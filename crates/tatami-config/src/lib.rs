@@ -43,7 +43,9 @@ pub struct Config {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default)]
 pub struct General {
-    pub start_at_login: bool,
+    /// What `edit-config` opens the file with (`code`, `zed`, `vim` in a
+    /// terminal of your choosing); empty opens TextEdit via `open -t`.
+    pub editor: String,
     /// How long a pending prefix (alt held alone, or a mode chord) waits
     /// before the which-key sheet opens. `0` opens it at once.
     pub which_key_delay_ms: u64,
@@ -63,10 +65,15 @@ pub struct General {
 /// enough that a pause shows it before you start wondering.
 pub const WHICH_KEY_DELAY_MS: u64 = 300;
 
+/// The starter `config.toml`: every option at its default, commented. The
+/// installer seeds a missing config with it and `edit-config` writes it
+/// before opening the editor, so there is always something to edit.
+pub const CONFIG_TEMPLATE: &str = include_str!("../config.toml");
+
 impl Default for General {
     fn default() -> Self {
         General {
-            start_at_login: false,
+            editor: String::new(),
             which_key_delay_ms: WHICH_KEY_DELAY_MS,
             leader: Mods::ALT,
             mouse_follows_focus: true,
@@ -504,11 +511,20 @@ mod tests {
     }
 
     #[test]
+    fn the_template_is_the_defaults_spelled_out() {
+        // Every line in it is a default, so a fresh file changes nothing;
+        // a default that drifts from the template fails here.
+        let cfg = parse(CONFIG_TEMPLATE);
+        assert_eq!(cfg, Config::default());
+        assert!(cfg.warnings.is_empty());
+    }
+
+    #[test]
     fn the_documented_sample_parses() {
         let cfg = parse(
             r#"
 [general]
-start_at_login = false
+editor = "code"
 which_key_delay_ms = 250
 leader = "alt"
 [gaps]

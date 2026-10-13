@@ -31,6 +31,10 @@ fn main() -> ExitCode {
             println!("{}", socket_path().display());
             ExitCode::SUCCESS
         }
+        Some("config-template") => {
+            print!("{}", tatami_config::CONFIG_TEMPLATE);
+            ExitCode::SUCCESS
+        }
         Some("keymap") => keymap(args.get(1).map(String::as_str)),
         Some("keymaps") => {
             for k in tatami_config::BUILTIN_KEYMAPS {
@@ -58,7 +62,7 @@ fn connect() -> Result<UnixStream, String> {
     Ok(s)
 }
 
-fn request(args: Vec<String>) -> ExitCode {
+pub(crate) fn request(args: Vec<String>) -> ExitCode {
     let mut s = match connect() {
         Ok(s) => s,
         Err(e) => return fail(&e),
@@ -161,7 +165,9 @@ usage: tatami <command> [args...]      send a command to the running daemon
        tatami subscribe <topic>...     stream events as JSON lines (--all for every topic)
        tatami keymap [name]            print a keymap preset to copy and edit
        tatami socket-path              print the daemon socket path
-       tatami service install|uninstall|restart|status   launchd agent (start at login)
+       tatami service enable|disable   start tatamid at login (the launchd agent), or not
+       tatami service start|stop|restart|status   the daemon through launchd
+       tatami config-template          print the commented default config
        tatami doctor                   environment checks
        tatami --version
 
@@ -169,6 +175,7 @@ Commands are the same words you bind in config.toml: focus left, move right,
 workspace 3, move-node-to-workspace 3, layout tiles horizontal vertical,
 fullscreen, resize width +50, list-windows --json, reload-config,
 checkpoint save <name>, checkpoint restore <name>, ping, quit,
-hot-swap (replace the running daemon with the installed build, in place) ...
+hot-swap (replace the running daemon with the installed build, in place),
+edit-config (open config.toml, writing the template first if needed) ...
 Run `tatami list-modes` or see the README for the full list.
 ";

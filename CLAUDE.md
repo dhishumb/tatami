@@ -24,6 +24,13 @@ scripts/install.sh --upgrade                                                    
 - Install with `scripts/install.sh`, never by copying binaries: it keeps
   the hash sidecars that decide whether the daemon needs a restart, and
   it restarts it cleanly (`tatami quit` saves and un-parks first).
+- The launchd agent restarts a crash only (`KeepAlive SuccessfulExit =
+  false`); keep every deliberate stop an exit 0 (`quit`, a taken socket)
+  or launchd respawns it every ten seconds. `enable`/`disable` never
+  bootout; `uninstall` does.
+- `crates/tatami-config/config.toml` is the user's starter config and is
+  tested to parse to `Config::default()`: a new option goes there, with
+  its default and a comment, in the same commit.
 
 ## Crates and the dependency direction
 
@@ -64,6 +71,12 @@ scripts/install.sh --upgrade                                                    
   but the key is lost).
 - A consuming tap needs Accessibility trust; install it only after
   `AXIsProcessTrusted()` and reinstall on `TrustChanged(true)`.
+- Our own `raise` echoes: activating an app for one window makes macOS
+  report the app's previous key window as focused first. When that one
+  is parked on a hidden workspace, taking the event as the user's wish
+  switches workspaces behind their back (`last_raise`, `RAISE_ECHO_FOR`
+  in `on_window_focused`). Don't widen what a focus event may do without
+  that guard.
 - macOS cannot be trusted about focus: `NSWorkspace` keeps a stale
   pid -1 record for an app that re-exec'd itself (plyterm) and never
   lists the live pid; the system-wide `AXFocusedApplication` fails; the

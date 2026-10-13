@@ -73,12 +73,19 @@ over every window, and Rectangle's Alt shortcuts collide with tatami's.
 
 ```sh
 tatamid                   # run in the foreground (logs to the terminal)
-tatami service status     # is the launchd agent installed and loaded?
-tatami service restart    # restart under launchd
+tatami service status     # start at login? loaded? running?
+tatami service start      # start it under launchd
+tatami service stop       # = tatami quit: layout saved, windows un-parked, and it stays stopped
+tatami service restart    # stop and start
+tatami service enable     # start at login (the menu's "Start at login" does the same)
+tatami service disable    # not at login; a running daemon is left alone
 tatami hot-swap           # replace the daemon with the installed build, in place
-tatami quit               # stop the daemon cleanly (layout saved, windows un-parked)
-tatami ping               # is it alive? also reports Accessibility trust
+tatami ping               # alive? version, Accessibility, window and workspace counts
 ```
+
+The installer turns start-at-login on. launchd restarts the daemon only
+after a crash, never after a `quit`, so quitting to try another window
+manager sticks until `tatami service start` or the next login.
 
 tatami needs the Accessibility permission: System Settings → Privacy &
 Security → Accessibility → `tatamid` on. The first start asks. Until it
@@ -217,9 +224,14 @@ rule disagree). `alt+w` `m` carries the whole visible workspace to the
 next monitor, merging it with a same-named workspace there. `alt+m`
 `H`…`L` move one tile onto the monitor in that direction.
 
-Unplug a monitor and its workspaces fold onto the main monitor as hidden
-workspaces; plug it back in and they return. Monitors are identified by
-their hardware UUID, so the arrangement survives a reboot.
+Unplug a monitor and its workspaces move onto the main monitor as hidden
+workspaces; one with the same name as a workspace already there is merged
+into it. Plugging the monitor back in does not undo that yet: the
+windows stay where they went. Monitors are identified by their hardware
+UUID, so an arrangement that was saved with every monitor present
+survives a reboot. A two-monitor desk at work and a three-monitor one at
+home is best kept as two checkpoints for now (`tatami checkpoint save
+work`, `restore home`).
 
 AeroSpace's model, one shared pool of workspaces each pinned to a
 monitor, is `model = "shared"` under `[workspaces]`; `summon-workspace`
@@ -255,9 +267,14 @@ pointer and the active mode (`[2] RESIZE`). Its menu lists every
 monitor's workspaces (the visible one checked, the focused monitor
 marked) to switch with a click, and the service actions: show keys,
 balance, flatten, tiling on/off, save checkpoint, reload config, edit
-config, hot-swap to the installed build, quit. `enable toggle` (`alt+s e`) stops managing without
-quitting: every window is un-parked and left alone until you turn it
-back on.
+config, start at login (checked when the launchd agent is installed),
+hot-swap to the installed build, quit. `enable toggle` (`alt+s e`) stops
+managing without quitting: every window is un-parked and left alone
+until you turn it back on. "Edit config…" (`tatami edit-config`) opens
+`config.toml` in TextEdit, or in whatever `editor` under `[general]`
+names (`"code"`, `"zed"`); when there is no file yet it first writes the
+template, every option at its default with a comment, so there is
+always something to edit.
 
 ## Seeing what is where
 
@@ -355,7 +372,10 @@ tatami checkpoint delete work
 ## Configuration recipes
 
 `~/.config/tatami/config.toml`, hot-reloaded on save (also `alt+s r` or
-`tatami reload-config`). Every key is optional.
+`tatami reload-config`). Every key is optional. `tatami config-template`
+prints the whole file with every option at its default and a comment
+each; the installer seeds a missing config with it and "Edit config…"
+writes it before opening the editor.
 
 Change the gaps and the default layout:
 
@@ -464,9 +484,10 @@ tail -f ~/.local/state/tatami/log/tatamid.log
 cargo run -p tatami-platform --example probe -- windows     # what Accessibility reports, per app
 ```
 
-- **Keys do nothing at all.** `tatami ping` says `trusted: false`: grant
-  Accessibility and `tatami service restart`. Nothing in the log at
-  all: the daemon isn't running; `tatami service status`.
+- **Keys do nothing at all.** `tatami ping` says `Accessibility NOT
+  granted`: tick tatamid in System Settings; the daemon notices by
+  itself. Nothing in the log at all: the daemon isn't running;
+  `tatami service status`, then `tatami service start`.
 - **A key does nothing in one place.** Watch the menu bar: a failed
   chord shows its reason there for 2.5 s (`no window to the left`, `the
   focused window is not tiled`).

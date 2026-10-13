@@ -500,6 +500,8 @@ pub fn command_words(a: &Action) -> String {
         Action::Help => "help".into(),
         Action::Quit => "quit".into(),
         Action::HotSwap => "hot-swap".into(),
+        Action::EditConfig => "edit-config".into(),
+        Action::StartAtLogin(t) => format!("start-at-login {}", toggle(*t)),
         Action::Ping => "ping".into(),
         Action::Version => "version".into(),
         Action::Subscribe(topics) => format!("subscribe {}", topics.join(" ")),

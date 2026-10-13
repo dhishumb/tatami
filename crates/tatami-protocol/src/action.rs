@@ -314,6 +314,11 @@ pub enum Action {
     Quit,
     /// Replace the running daemon with the `tatamid` on disk, in place.
     HotSwap,
+    /// Open `config.toml` in the configured editor, writing the commented
+    /// template first when there is no file.
+    EditConfig,
+    /// Start the daemon at login (the launchd agent): on, off or toggle.
+    StartAtLogin(Toggle),
     Ping,
     Version,
     Subscribe(Vec<String>),
@@ -604,6 +609,8 @@ impl Action {
             }),
             "quit" => Action::Quit,
             "hot-swap" => Action::HotSwap,
+            "edit-config" => Action::EditConfig,
+            "start-at-login" => Action::StartAtLogin(toggle(cmd, &pos)?),
             "ping" => Action::Ping,
             "version" => Action::Version,
             "subscribe" => {

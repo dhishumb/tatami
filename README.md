@@ -35,8 +35,11 @@ binaries are signed with a self-signed identity created once in your login
 keychain, so that grant survives upgrades. `scripts/install.sh --upgrade`
 reinstalls the binaries and hot-swaps the running daemon onto the new
 build: same pid, same socket, no window moves (`tatami hot-swap` or
-`alt+s u` does it by hand). See the script header for `PREFIX`,
-`SKIP_BUILD`, `TATAMI_NO_SERVICE` and the other knobs.
+`alt+s u` does it by hand). The daemon starts at login; `tatami quit`
+stays quit (launchd only restarts a crash) and the menu bar item or
+`tatami service enable|disable` toggles start at login. See the script
+header for `PREFIX`, `SKIP_BUILD`, `TATAMI_NO_SERVICE` and the other
+knobs.
 
 Quit Rectangle, yabai or AeroSpace first; two managers fight.
 `tatami doctor` checks the socket, the process and known conflicts.
@@ -131,7 +134,10 @@ Names follow AeroSpace. Plus:
 - `tatami checkpoint save [name]` / `restore <name>` / `list` / `delete <name>`
 - `tatami subscribe workspace focus mode` streams JSON lines (for
   sketchybar and friends; `--all` for every topic)
-- `tatami ping` reports trust and counts
+- `tatami ping` reports version, Accessibility, window and workspace counts
+- `tatami edit-config` opens the config (writing the commented template
+  first if there is none); `tatami service enable|disable` is start at
+  login, `start|stop|restart|status` the daemon under launchd
 
 ## How it works
 

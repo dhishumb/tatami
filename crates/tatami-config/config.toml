@@ -1,0 +1,57 @@
+# tatami configuration — ~/.config/tatami/config.toml
+#
+# Every line here is the built-in default, so the file changes nothing
+# until you edit it. Delete what you don't care about; a missing field
+# falls back to its default. Saved changes are picked up at once (the
+# daemon watches the file); a mistake is logged and the previous config
+# stays in force. `tatami reload-config` reloads by hand.
+
+[general]
+which_key_delay_ms = 300     # hold Alt alone this long and the key sheet opens (0: at once)
+leader = "alt"               # the held modifier that makes a chord a binding ("alt", "ctrl+alt")
+mouse_follows_focus = true   # a key that moves focus to another monitor brings the pointer along
+overview_monitor = "main"    # where alt+o opens: "main", "pointer", "focused", a number (left to right) or part of a name
+editor = ""                  # "Edit config" opens the file with this command (e.g. "code", "zed"); "" opens TextEdit
+
+[gaps]
+inner = 8                    # between neighbouring windows
+outer = 8                    # between the windows and the screen edge; or { top = 8, bottom = 8, left = 8, right = 8 }
+
+[layout]
+default = "h_tiles"          # a new workspace's layout: h_tiles | v_tiles | h_accordion | v_accordion
+accordion_padding = 30       # how much of each hidden accordion window peeks out, in points
+
+[workspaces]
+model = "per-monitor"        # each monitor has its own 1..9; "shared" = AeroSpace's one pool
+names = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
+persistent = []              # workspaces kept when empty (others are forgotten when you leave them)
+new_window = "own-workspace" # a new window fills its own workspace; "tile" opens it beside the focused one
+# Shared model only, AeroSpace's syntax: pin a workspace to a monitor.
+# [workspaces.monitor-force-assignment]
+# "1" = "main"
+# "6" = ["secondary", "DELL"]
+
+[restore]
+enabled = true               # put windows back after a restart (state.json is saved a second after every change)
+launch_apps = true           # relaunch apps that were running but are not now
+timeout_s = 60               # stop waiting for a relaunched app's windows after this long
+ignore = []                  # bundle ids never relaunched
+
+# Rules are checked in order, yours before the built-in ones (System
+# Settings, Calculator, Archive Utility, Installer and Digital Color Meter
+# float). Match on app_id, app_name_regex or title_regex; then float = true,
+# workspace = "3" or ignore = true (leave the window entirely alone).
+# [[rules]]
+# app_id = "com.google.Chrome"
+# workspace = "2"
+#
+# [[rules]]
+# title_regex = "^Picture in Picture$"
+# float = true
+
+[keys]
+preset = "tatami"            # `tatami keymap` prints it; copy to keymaps/<name>.toml beside this file to edit
+# Overrides, in the preset's own shape:
+# "alt+enter" = "exec-and-forget open -a Ghostty"
+# [keys.modes.resize]
+# "x" = ["balance-sizes", "normal"]

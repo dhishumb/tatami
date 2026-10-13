@@ -1294,7 +1294,7 @@ fn list_windows_json_returns_data() {
 fn requests_ping_quit_exec_and_daemon_words() {
     let (mut t, _) = setup(vec![mon("m1", 0.0)], &[win("com.a", "a", 0.0)]);
     let ping = t.run("ping");
-    assert_eq!(ping.stdout, "pong");
+    assert!(ping.stdout.starts_with("pong: tatamid"), "{}", ping.stdout);
     assert_eq!(ping.data.unwrap()["windows"], 1);
     let args = |s: &str| -> Vec<String> { s.split_whitespace().map(String::from).collect() };
     let (resp, out) = t.r.handle_request(&args("quit"), t.now);
@@ -1303,6 +1303,29 @@ fn requests_ping_quit_exec_and_daemon_words() {
     // menu offers it.
     let (resp, out) = t.r.handle_request(&args("hot-swap"), t.now);
     assert!(resp.ok && out.contains(&Outcome::HotSwap), "{resp:?}");
+    // `edit-config` carries the configured editor; `start-at-login toggle`
+    // asks for the opposite of what the daemon last reported, and the
+    // menu shows the daemon's word.
+    let (resp, out) = t.r.handle_request(&args("edit-config"), t.now);
+    assert!(
+        resp.ok && out.contains(&Outcome::EditConfig(String::new())),
+        "{resp:?}"
+    );
+    let (resp, out) = t.r.handle_request(&args("start-at-login"), t.now);
+    assert!(
+        resp.ok && out.contains(&Outcome::StartAtLogin(true)),
+        "{resp:?}"
+    );
+    assert!(!t.r.start_at_login(), "only the daemon flips it");
+    t.r.set_start_at_login(true);
+    let login =
+        t.r.menu_items()
+            .into_iter()
+            .find(|m| m.command == ["start-at-login", "toggle"])
+            .unwrap();
+    assert!(login.checked);
+    let (_, out) = t.r.handle_request(&args("start-at-login"), t.now);
+    assert!(out.contains(&Outcome::StartAtLogin(false)));
     assert!(
         t.r.menu_items().iter().any(|m| m.command == ["hot-swap"]),
         "menu offers the swap"
@@ -1328,7 +1351,12 @@ fn requests_ping_quit_exec_and_daemon_words() {
         ],
         t.now,
     );
-    assert_eq!(res.unwrap(), format!("{}\npong", env!("CARGO_PKG_VERSION")));
+    assert!(
+        res.as_ref()
+            .unwrap()
+            .starts_with(&format!("{}\npong", env!("CARGO_PKG_VERSION"))),
+        "{res:?}"
+    );
 }
 
 #[test]
@@ -2044,6 +2072,51 @@ fn overview_search_lists_matching_keys_and_enter_runs_the_binding() {
     t.drain();
     assert!(!t.r.overview);
     assert_eq!(t.r.keys.mode(), Some("resize"));
+}
+
+#[test]
+fn a_parked_sibling_window_surfacing_after_our_raise_does_not_switch_workspaces() {
+    // Chrome has a window on each monitor; the one on m2 is parked on a
+    // hidden workspace. Focusing the m1 window (the overview, `focus
+    // --window-id`) activates Chrome, and macOS reports the parked window
+    // as focused first. That must not switch m2's workspace.
+    let (mut t, h) = setup(
+        vec![mon("m1", 0.0), mon("m2", 1000.0)],
+        &[
+            win("com.chrome", "a", 0.0),
+            win("com.chrome", "b", 1000.0),
+            win("com.other", "c", 300.0),
+        ],
+    );
+    t.focus(h[1]);
+    t.ok("move-node-to-workspace 2");
+    let b = t.r.by_handle[&h[1]];
+    let ws_b = t.r.wins[b].ws;
+    assert!(!t.r.model.is_visible(ws_b), "b is parked on m2's 2");
+    let m2 = t.mon_id("m2");
+    let shown = t.r.model.visible_on(m2);
+    t.focus(h[2]);
+    t.ok(&format!("focus --window-id {}", h[0].0));
+    assert_eq!(t.focused(), Some(h[0]));
+    // The echo: Chrome's old key window, parked, reported focused.
+    t.focus(h[1]);
+    assert_eq!(t.r.model.visible_on(m2), shown, "m2 keeps its workspace");
+    assert!(!t.r.model.is_visible(ws_b));
+    assert_eq!(
+        t.focused(),
+        Some(h[0]),
+        "the asked-for window stays focused"
+    );
+    assert!(
+        t.calls()
+            .iter()
+            .any(|c| matches!(c, FakeCall::Raise(x) if *x == h[0])),
+        "the asked-for window is raised again"
+    );
+    // A second later the same event is the user (Cmd-tab, the Dock).
+    t.now += Duration::from_secs(2);
+    t.focus(h[1]);
+    assert!(t.r.model.is_visible(ws_b), "a real focus switches it in");
 }
 
 #[test]

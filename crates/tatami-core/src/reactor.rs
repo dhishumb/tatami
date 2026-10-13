@@ -54,6 +54,12 @@ pub enum Outcome {
     ReloadConfig,
     /// `hot-swap`: exec the `tatamid` on disk over this process.
     HotSwap,
+    /// `edit-config`: the daemon writes the template if needed and opens
+    /// the file with this command (`general.editor`; empty = TextEdit).
+    EditConfig(String),
+    /// `start-at-login on|off`: the daemon installs or removes the launchd
+    /// agent and reports back with `set_start_at_login`.
+    StartAtLogin(bool),
 }
 
 /// Frame-transaction verify delays after attempt 1, 2 and 3.
@@ -64,6 +70,9 @@ const APP_SCAN_EVERY: Duration = Duration::from_secs(3);
 /// A hand-dragged tile is acted on this long after its last move event.
 const DRAG_SETTLE: Duration = Duration::from_millis(200);
 const FLASH_FOR: Duration = Duration::from_millis(2500);
+/// After our raise, a focus event for a parked sibling window within this
+/// long is the app activating, not the user reaching for it.
+const RAISE_ECHO_FOR: Duration = Duration::from_secs(1);
 /// Read-back deadlines after each attempt. Short, because a window that is
 /// going to refuse a size does so at once and every retry is a visible
 /// twitch; a slow app (Electron) still gets three chances.
@@ -155,6 +164,12 @@ pub struct Reactor<P: Platform> {
     pending_focus: Option<WindowHandle>,
     /// Focus events our own z-order raises will echo; dropped once each.
     raise_echo: Vec<WindowHandle>,
+    /// Our last raise: the app's pid, the window, and when. Activating an
+    /// app for one window makes macOS report the app's previous key window
+    /// first, and when that one is parked on a hidden workspace, taking
+    /// the event as the user's wish would switch workspaces behind their
+    /// back (`on_window_focused`).
+    last_raise: Option<(i32, WindowId, Instant)>,
 
     txs: Vec<FrameTx>,
     restore: Option<RestoreSession>,
@@ -190,6 +205,8 @@ pub struct Reactor<P: Platform> {
 
     enabled: bool,
     trusted: bool,
+    /// The launchd agent is installed (the daemon tells us; the menu shows it).
+    start_at_login: bool,
     dirty: bool,
     out: Vec<Outcome>,
     scratch: Vec<Placement>,
@@ -386,6 +403,7 @@ impl<P: Platform> Reactor<P> {
             prev_focused: None,
             pending_focus: None,
             raise_echo: Vec::new(),
+            last_raise: None,
             txs: Vec::new(),
             restore: None,
             next_spec: 0,
@@ -405,6 +423,7 @@ impl<P: Platform> Reactor<P> {
             overview_query: None,
             overview_sel: 0,
             overview_open: Vec::new(),
+            start_at_login: false,
             drag: None,
             unmanageable: Vec::new(),
             next_app_scan: now + APP_SCAN_EVERY,
@@ -436,6 +455,19 @@ impl<P: Platform> Reactor<P> {
 
     pub fn trusted(&self) -> bool {
         self.trusted
+    }
+
+    /// Whether tatamid starts at login, as the daemon found it; shown in
+    /// the menu.
+    pub fn set_start_at_login(&mut self, on: bool) {
+        if self.start_at_login != on {
+            self.start_at_login = on;
+            self.status_dirty = true;
+        }
+    }
+
+    pub fn start_at_login(&self) -> bool {
+        self.start_at_login
     }
 
     pub fn enabled(&self) -> bool {
@@ -833,16 +865,11 @@ impl<P: Platform> Reactor<P> {
         rows.push(MenuItem::separator());
         rows.push(MenuItem::action("Save checkpoint", &["checkpoint", "save"]));
         rows.push(MenuItem::action("Reload config", &["reload-config"]));
-        rows.push(MenuItem::action(
-            "Edit config…",
-            &[
-                "exec-and-forget",
-                "open",
-                "-t",
-                "~/.config/tatami/config.toml",
-            ],
-        ));
+        rows.push(MenuItem::action("Edit config…", &["edit-config"]));
         rows.push(MenuItem::separator());
+        let mut login = MenuItem::action("Start at login", &["start-at-login", "toggle"]);
+        login.checked = self.start_at_login;
+        rows.push(login);
         rows.push(MenuItem::action(
             "Hot-swap to the installed build",
             &["hot-swap"],
@@ -2158,6 +2185,7 @@ impl<P: Platform> Reactor<P> {
         }
         let relayout = self.note_focused(id);
         let _ = self.p.raise(self.wins[id].w.handle);
+        self.last_raise = Some((self.wins[id].w.pid, id, self.now));
         if relayout {
             self.relayout(ws);
         }
@@ -2223,6 +2251,23 @@ impl<P: Platform> Reactor<P> {
             return;
         }
         if self.enabled && !self.model.is_visible(ws) {
+            // A parked window of the app we just raised another window of:
+            // the activation's side effect (the app's old key window
+            // surfaces first), not the user. Re-assert what they asked
+            // for instead of switching that workspace in.
+            if let Some((pid, intended, at)) = self.last_raise
+                && pid == self.wins[id].w.pid
+                && intended != id
+                && self.now.duration_since(at) < RAISE_ECHO_FOR
+                && let Some(w) = self.wins.get(intended)
+            {
+                tracing::debug!(app = %w.w.app_name, "ignoring a parked window's focus echo after our raise");
+                let h = w.w.handle;
+                if self.p.raise(h).is_ok() {
+                    self.raise_echo.push(h);
+                }
+                return;
+            }
             // Cmd-tab or a click in the Dock reached a parked window.
             let sw = self.model.switch(self.focused_monitor, ws);
             self.apply_switch(sw, false);

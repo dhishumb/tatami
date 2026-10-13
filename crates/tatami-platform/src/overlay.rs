@@ -397,8 +397,10 @@ impl Sheet {
         panel.setOpaque(false);
         // Our app is never active; the default would hide the panel at once.
         panel.setHidesOnDeactivate(false);
+        // A little see-through, so the sheet sits on the desk instead of
+        // covering it; the text stays legible on anything behind it.
         panel.setBackgroundColor(Some(&NSColor::colorWithSRGBRed_green_blue_alpha(
-            0.11, 0.11, 0.13, 0.94,
+            0.11, 0.11, 0.13, 0.84,
         )));
         // SAFETY: we hold the only strong reference; AppKit must not release it on close.
         unsafe { panel.setReleasedWhenClosed(false) };

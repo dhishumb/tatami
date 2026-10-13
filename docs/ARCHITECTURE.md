@@ -24,6 +24,19 @@ and calls the waker, which signals the CF source and wakes the run
 loop. AppKit and AX stay on the thread they demand, with no lock
 anywhere.
 
+### Lifecycle under launchd
+
+`tatami service` (`tatami/src/service.rs`) owns the agent plist. It runs
+the daemon at login and `KeepAlive` is `SuccessfulExit = false`: a crash
+is restarted, a `quit` (exit 0) is not, so quitting means quit until
+`tatami service start` or the next login. `enable`/`disable` write or
+remove the plist without touching a running daemon (bootstrapping only
+when nothing runs), which is what the menu's "Start at login" calls
+through the `tatami` next to `tatamid`; the daemon reports the plist's
+presence back to the reactor (`set_start_at_login`) for the checkmark.
+A second daemon that finds the socket taken exits 0 for the same reason:
+a failing exit would have launchd respawn it every ten seconds.
+
 ### Daemon upgrade (hot swap)
 
 The daemon replaces its own code in place (`tatamid/src/main.rs`

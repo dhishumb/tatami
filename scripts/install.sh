@@ -301,6 +301,31 @@ restart_daemon() {
         start_daemon_by_hand
     fi
 }
+# The daemon must answer before this script calls itself done: a launchd
+# job that never came up, or a build without Accessibility, is the first
+# thing a new install runs into, and silence here is what makes it look
+# like "the install did not start the server".
+verify_daemon() {
+    local reply=""
+    for _ in $(seq 1 40); do
+        if reply="$("$BIN_DIR/tatami" ping 2>/dev/null)"; then break; fi
+        reply=""
+        sleep 0.25
+    done
+    if [[ -z "$reply" ]]; then
+        warn "tatamid is not answering on its socket after 10 s — see $STATE_DIR/log/tatamid.log"
+        warn "and \`tatami service status\`; \`tatami service start\` starts it"
+        return
+    fi
+    ok "tatamid is running: ${reply#pong: }"
+    case "$reply" in
+        *"NOT granted"*)
+            warn "tatamid cannot manage windows until it is ticked under System Settings →"
+            warn "Privacy & Security → Accessibility (opening it now); the daemon notices by itself"
+            open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" 2>/dev/null || true
+            ;;
+    esac
+}
 start_daemon_by_hand() {
     mkdir -p "$STATE_DIR/log"
     # Fully detached: no inherited stdio, or a pipeline running this script
@@ -327,45 +352,14 @@ if [[ "$MODE" == "upgrade" ]]; then
 fi
 
 # 6. Seed the config dir. tatami runs on built-in defaults without a file;
-# the stub is there to be edited.
+# the template (every option at its default, commented) is there to be
+# edited — the menu's "Edit config…" opens it.
 mkdir -p "$CONFIG_DIR/keymaps" "$STATE_DIR/log"
 CONFIG_FILE="$CONFIG_DIR/config.toml"
 if [[ -f "$CONFIG_FILE" ]]; then
     info "$CONFIG_FILE already exists — leaving it alone"
 else
-    cat > "$CONFIG_FILE" <<'EOF'
-# tatami configuration. Every section is optional — missing fields fall
-# back to built-in defaults. Hot-reloaded on save. See README.md.
-
-[general]
-which_key_delay_ms = 300     # hold Alt this long and the key sheet opens
-leader = "alt"
-
-[gaps]
-inner = 8
-outer = 8
-
-[layout]
-default = "h_tiles"          # h_tiles | v_tiles | h_accordion | v_accordion
-accordion_padding = 30
-
-[workspaces]
-model = "per-monitor"        # each monitor has its own 1..9; "shared" = AeroSpace's pool
-names = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
-new_window = "own-workspace" # each new window fills its own workspace; "tile" opens it beside the focused one
-
-[restore]
-enabled = true               # put windows back after a restart
-launch_apps = true           # relaunch apps that are missing
-
-# [[rules]]
-# app_id = "com.apple.systempreferences"
-# float = true
-
-[keys]
-preset = "tatami"            # `tatami keymap` prints it; copy to keymaps/<name>.toml to edit
-# "alt+enter" = "exec-and-forget open -a Ghostty"
-EOF
+    "$BIN_DIR/tatami" config-template > "$CONFIG_FILE"
     ok "wrote default config to $CONFIG_FILE"
 fi
 
@@ -383,12 +377,13 @@ else
         for _ in $(seq 1 40); do daemon_running || break; sleep 0.25; done
     fi
     if "$BIN_DIR/tatami" service install >/dev/null 2>&1; then
-        ok "installed launchd agent $LABEL (starts at login, restarts if it dies)"
+        ok "installed launchd agent $LABEL (starts at login, restarts after a crash)"
     else
         warn "launchd agent install failed — \`tatami service install\` for the error"
         start_daemon_by_hand
     fi
 fi
+verify_daemon
 
 # 8. Next steps.
 echo
@@ -402,16 +397,18 @@ cat <<EOF
 Next steps:
 
   - Accessibility:   if macOS asked, tick tatamid in System Settings →
-                     Privacy & Security → Accessibility, then
-                     \`tatami service restart\`. \`tatami ping\` reports it.
+                     Privacy & Security → Accessibility; the daemon notices
+                     by itself. \`tatami ping\` reports it.
   - Try the keys:    alt+h/j/k/l focus, alt+shift+h/j/k/l move, alt+1..9
                      workspaces, alt+f fullscreen, alt+t float. Hold Alt
                      for the key sheet. Everything acts on the monitor
                      under the mouse.
   - All keys:        tatami keymap
-  - Config:          \$EDITOR $CONFIG_FILE    (hot-reloaded)
+  - Config:          $CONFIG_FILE    (hot-reloaded; every option is in
+                     it, commented; \`tatami edit-config\` or the menu opens it)
   - Menu bar:        the grid icon lists workspaces per monitor and the
-                     service actions (reload, checkpoint, enable, hot-swap, quit)
+                     service actions (reload, edit config, checkpoint,
+                     enable, start at login, hot-swap, quit)
   - Checkpoints:     tatami checkpoint save <name> | restore <name> | list
 
 Layout:
@@ -420,7 +417,8 @@ Layout:
   $STATE_DIR/checkpoints/ named layouts
   $STATE_DIR/log/tatamid.log
 
-Daemon: tatami service status | restart | uninstall    tatami quit
+Daemon: tatami service status | start | stop | restart     tatami quit (stays quit)
+Start at login: tatami service enable | disable, or the menu bar item
 Upgrade: git pull && ./scripts/install.sh --upgrade  (hot-swaps the daemon in place)
 Uninstall: tatami service uninstall && rm $BIN_DIR/{tatamid,tatami}
            (and $CONFIG_DIR, $STATE_DIR for a clean slate)

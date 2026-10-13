@@ -28,8 +28,9 @@ use tatami_core::{MonitorInfo, OverlayContent, PlatformEvent};
 use crate::Shared;
 
 const FONT_SIZE: CGFloat = 13.0;
-/// A list is read line by line, from further away than a key sheet.
-const LIST_FONT_SIZE: CGFloat = 16.0;
+/// A list is read line by line; the same size as the sheet (16 was too
+/// big on a desk of four monitors), it is the layout that differs.
+const LIST_FONT_SIZE: CGFloat = 13.0;
 const PAD: CGFloat = 12.0;
 const BOTTOM_GAP: CGFloat = 24.0;
 const ARROW: &str = " → ";

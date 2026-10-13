@@ -39,10 +39,9 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
   collapses it (from a window too), and `Enter` focuses a window or
   toggles a header. The highlight starts on the window you're in, with
   that monitor expanded and the others folded; `1`-`9` expand monitor N.
-  A search looks under every monitor, folded or not. The list is set in
-  larger type than the key sheet, without the `→` on every line, with a
-  blank line between monitors and a fixed column for the highlight, and
-  it may use half the screen.
+  A search looks under every monitor, folded or not. The list is set
+  without the `→` on every line, with a blank line between monitors and
+  a fixed column for the highlight, and it may use half the screen.
 - **A tiling window manager for macOS in the shape of AeroSpace**, using
   only the public Accessibility API: a daemon (`tatamid`) that owns every
   window on the main thread's run loop, and a thin CLI (`tatami`) over a

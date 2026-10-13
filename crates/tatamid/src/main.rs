@@ -25,11 +25,12 @@ use std::rc::{Rc, Weak};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
+use tatami_core::platform::Platform;
 use tatami_core::reactor::{Outcome, Reactor};
 use tatami_core::{KeyDisposition, PlatformEvent};
 use tatami_platform::MacPlatform;
 use tatami_platform::runloop::MainLoop;
-use tatami_protocol::{Action, CheckpointCmd, IpcEvent, Response, socket_path};
+use tatami_protocol::{Action, CheckpointCmd, DeskCmd, IpcEvent, Response, socket_path};
 use tatami_state::SavedState;
 
 use ipc::IpcMsg;
@@ -118,6 +119,7 @@ fn main() {
 
     let state_path = tatami_state::state_path();
     let mut enabled = true;
+    let manifest_adopted = manifest.is_some();
     let saved = match manifest {
         Some(m) => {
             tracing::info!(
@@ -152,6 +154,35 @@ fn main() {
     };
 
     let mut platform = MacPlatform::new();
+    // The desk present now may not be the one state.json was saved on
+    // (undocked, rebooted elsewhere): its own file, if any, is the layout
+    // to restore. A hot-swap manifest is the live layout and wins.
+    let saved = match (&manifest_adopted, saved) {
+        (false, saved) => {
+            let present: Vec<String> = platform.screens().into_iter().map(|s| s.uuid).collect();
+            let here = tatami_state::desk_id_of(&present);
+            let stale = saved.as_ref().is_none_or(|s| s.desk_id() != here);
+            match tatami_state::desk_path(&here).filter(|p| stale && p.exists()) {
+                Some(p) => match tatami_state::load(&p) {
+                    Ok(Some(d)) => {
+                        tracing::info!(
+                            "desk {here} ({}): restoring its {} windows instead of state.json",
+                            d.desk_name(),
+                            d.window_count()
+                        );
+                        Some(d)
+                    }
+                    Ok(None) => saved,
+                    Err(e) => {
+                        tracing::warn!("desk {here} not loaded: {e}");
+                        saved
+                    }
+                },
+                None => saved,
+            }
+        }
+        (true, saved) => saved,
+    };
     let pending: Rc<RefCell<VecDeque<PlatformEvent>>> = Rc::default();
     let daemon_slot: Rc<RefCell<Option<Rc<RefCell<Daemon>>>>> = Rc::default();
 
@@ -189,6 +220,7 @@ fn main() {
         reactor.set_enabled(false);
     }
     reactor.set_start_at_login(agent_installed());
+    refresh_desks(&mut reactor);
     let daemon = Rc::new(RefCell::new(Daemon {
         reactor,
         main_loop: main_loop.clone(),
@@ -417,14 +449,112 @@ fn handle_request(
     args: &[String],
     now: Instant,
 ) -> (Response, Vec<Outcome>) {
-    if args.first().map(String::as_str) == Some("checkpoint") {
-        return match Action::parse(args) {
+    match args.first().map(String::as_str) {
+        Some("checkpoint") => match Action::parse(args) {
             Ok(Action::Checkpoint(c)) => checkpoint(r, c, now),
             Ok(_) => (Response::err(0, "checkpoint: unexpected parse"), Vec::new()),
             Err(e) => (Response::err(0, e.to_string()), Vec::new()),
-        };
+        },
+        Some("desk") => match Action::parse(args) {
+            Ok(Action::Desk(c)) => desk(r, c, now),
+            Ok(_) => (Response::err(0, "desk: unexpected parse"), Vec::new()),
+            Err(e) => (Response::err(0, e.to_string()), Vec::new()),
+        },
+        _ => r.handle_request(args, now),
     }
-    r.handle_request(args, now)
+}
+
+/// The saved desks, as the reactor's menu shows them.
+fn refresh_desks(r: &mut Reactor<MacPlatform>) {
+    r.set_desks(tatami_state::list_desks(&tatami_state::desks_dir()));
+}
+
+/// Write `state` as desk `id`'s layout.
+fn file_desk(id: &str, mut state: SavedState) -> Result<String, String> {
+    let path = tatami_state::desk_path(id).ok_or_else(|| format!("bad desk id `{id}`"))?;
+    state.saved_at = rfc3339_now();
+    tatami_state::save(&path, &state).map_err(|e| e.to_string())?;
+    Ok(state.desk_name())
+}
+
+/// `desk list|save|restore|delete`: one layout per set of monitors, keyed
+/// by the uuids' fingerprint. `restore` applies a desk's layout to the
+/// monitors present, launching nothing.
+fn desk(r: &mut Reactor<MacPlatform>, cmd: DeskCmd, now: Instant) -> (Response, Vec<Outcome>) {
+    let here = r.desk_id();
+    match cmd {
+        DeskCmd::List => {
+            let list = tatami_state::list_desks(&tatami_state::desks_dir());
+            let mut text = Vec::new();
+            let mut data = Vec::new();
+            for d in &list {
+                let mark = if d.id == here { "*" } else { " " };
+                text.push(format!(
+                    "{mark} {}  {}  (saved {})",
+                    d.id, d.name, d.saved_at
+                ));
+                data.push(serde_json::json!({
+                    "id": d.id, "name": d.name, "monitors": d.monitors,
+                    "saved_at": d.saved_at, "present": d.id == here,
+                }));
+            }
+            if list.is_empty() {
+                text.push(format!(
+                    "no saved desks yet; this one is {here} ({}), saved with the layout",
+                    r.desk_name()
+                ));
+            }
+            r.set_desks(list);
+            (
+                Response::with_data(0, text.join("\n"), serde_json::json!(data)),
+                Vec::new(),
+            )
+        }
+        DeskCmd::Save => {
+            let s = r.snapshot();
+            let n = s.window_count();
+            let res = file_desk(&here, s);
+            refresh_desks(r);
+            match res {
+                Ok(name) => (
+                    Response::ok(0, format!("saved desk {here} ({name}, {n} windows)")),
+                    Vec::new(),
+                ),
+                Err(e) => (Response::err(0, e), Vec::new()),
+            }
+        }
+        DeskCmd::Restore(id) => {
+            let Some(path) = tatami_state::desk_path(&id) else {
+                return (Response::err(0, format!("bad desk id `{id}`")), Vec::new());
+            };
+            match tatami_state::load(&path) {
+                Ok(Some(s)) => {
+                    let (n, name) = (s.window_count(), s.desk_name());
+                    let out = r.restore_desk(s, now);
+                    (
+                        Response::ok(0, format!("restoring {n} windows of desk {name}")),
+                        out,
+                    )
+                }
+                Ok(None) => (Response::err(0, format!("no desk `{id}`")), Vec::new()),
+                Err(e) => (Response::err(0, e.to_string()), Vec::new()),
+            }
+        }
+        DeskCmd::Delete(id) => {
+            let Some(path) = tatami_state::desk_path(&id) else {
+                return (Response::err(0, format!("bad desk id `{id}`")), Vec::new());
+            };
+            let res = std::fs::remove_file(&path);
+            refresh_desks(r);
+            match res {
+                Ok(()) => (Response::ok(0, format!("deleted desk {id}")), Vec::new()),
+                Err(e) => (
+                    Response::err(0, format!("{}: {e}", path.display())),
+                    Vec::new(),
+                ),
+            }
+        }
+    }
 }
 
 fn checkpoint(
@@ -640,6 +770,41 @@ impl Daemon {
                 Outcome::Exit => self.want_exit = true,
                 Outcome::HotSwap => self.want_swap = true,
                 Outcome::EditConfig(editor) => self.edit_config(&editor),
+                Outcome::Desk(cmd) => {
+                    let (resp, more) = desk(&mut self.reactor, cmd, now);
+                    if resp.ok {
+                        tracing::info!("{}", resp.stdout);
+                    } else {
+                        tracing::warn!("desk: {}", resp.error);
+                    }
+                    self.handle_outcomes(more, now);
+                }
+                // A dock or undock: file the desk we left, bring back the
+                // one we are on if it was ever saved.
+                Outcome::DeskChanged { from, saved, to } => {
+                    match file_desk(&from, *saved) {
+                        Ok(name) => tracing::info!("desk {from} ({name}) filed"),
+                        Err(e) => tracing::warn!("desk {from} not filed: {e}"),
+                    }
+                    let back = tatami_state::desk_path(&to).filter(|p| p.exists());
+                    match back.map(|p| tatami_state::load(&p)) {
+                        Some(Ok(Some(s))) => {
+                            tracing::info!(
+                                "desk {to} ({}): restoring {} windows",
+                                s.desk_name(),
+                                s.window_count()
+                            );
+                            let more = self.reactor.restore_desk(s, now);
+                            self.handle_outcomes(more, now);
+                        }
+                        Some(Err(e)) => tracing::warn!("desk {to} not loaded: {e}"),
+                        _ => tracing::info!(
+                            "desk {to} ({}) has no saved layout yet",
+                            self.reactor.desk_name()
+                        ),
+                    }
+                    refresh_desks(&mut self.reactor);
+                }
                 Outcome::StartAtLogin(on) => {
                     // The CLI next to us owns the launchd agent; run it and
                     // believe the file system, not the exit code.
@@ -791,6 +956,13 @@ impl Daemon {
                 tracing::debug!("state saved ({} windows)", s.window_count());
             }
             Err(e) => tracing::warn!("state not saved: {e}"),
+        }
+        // The same layout is this desk's; keep its file current so a
+        // dock or undock finds the latest arrangement, not a stale one.
+        if let Some(p) = tatami_state::desk_path(&s.desk_id())
+            && let Err(e) = tatami_state::save(&p, &s)
+        {
+            tracing::warn!("desk not saved: {e}");
         }
     }
 }

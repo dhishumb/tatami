@@ -340,6 +340,20 @@ SIGTERM and SIGINT force a save after un-parking; a hot swap saves
 before it execs. Start-up with a saved layout runs the restore in place
 of the first layout pass, so windows never see the interim tiling.
 
+Desks (`tatami-state/src/desk.rs`): a desk is the set of connected
+monitors, identified by FNV-1a over the sorted uuids, and
+`desks/<id>.json` is that desk's layout, written by every state save.
+`on_screens_changed` compares the id before and after `sync_screens`
+and, when it differs, emits `Outcome::DeskChanged { from, saved, to }`
+with the snapshot taken *before* the vanished monitor's workspaces were
+folded in; the daemon files it under `from`, and restores `desks/<to>`
+if it exists through `restore_desk`, a restore session that launches
+nothing and drops unmatched slots at once. At start the daemon prefers
+the present desk's file over `state.json` when the two were saved on
+different monitor sets. The menu lists the files (`set_desks`), the
+present one checked; `desk restore <id>` applies any desk to the
+monitors present through the same monitor mapping.
+
 A restore (start-up, or `checkpoint restore`) is a session:
 
 1. Map each saved monitor by uuid, else name, frame size, or main.

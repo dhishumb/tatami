@@ -410,6 +410,8 @@ Next steps:
                      service actions (reload, edit config, checkpoint,
                      enable, start at login, hot-swap, quit)
   - Checkpoints:     tatami checkpoint save <name> | restore <name> | list
+  - Desks:           one layout per set of monitors, switched when you dock
+                     or undock; tatami desk list, or the menu
 
 Layout:
   $CONFIG_FILE      config (+ keymaps/ for your own presets)

@@ -60,6 +60,16 @@ pub enum Outcome {
     /// `start-at-login on|off`: the daemon installs or removes the launchd
     /// agent and reports back with `set_start_at_login`.
     StartAtLogin(bool),
+    /// `desk …` from a key or the menu; the daemon owns the files.
+    Desk(tatami_protocol::DeskCmd),
+    /// The set of monitors changed: `saved` is the layout the desk `from`
+    /// had the moment before, for the daemon to file; `to` is the desk
+    /// now present, whose saved layout the daemon restores if it has one.
+    DeskChanged {
+        from: String,
+        saved: Box<SavedState>,
+        to: String,
+    },
 }
 
 /// Frame-transaction verify delays after attempt 1, 2 and 3.
@@ -207,6 +217,8 @@ pub struct Reactor<P: Platform> {
     trusted: bool,
     /// The launchd agent is installed (the daemon tells us; the menu shows it).
     start_at_login: bool,
+    /// Saved desks, for the menu (the daemon reads the files).
+    desks: Vec<tatami_state::DeskInfo>,
     dirty: bool,
     out: Vec<Outcome>,
     scratch: Vec<Placement>,
@@ -424,6 +436,7 @@ impl<P: Platform> Reactor<P> {
             overview_sel: 0,
             overview_open: Vec::new(),
             start_at_login: false,
+            desks: Vec::new(),
             drag: None,
             unmanageable: Vec::new(),
             next_app_scan: now + APP_SCAN_EVERY,
@@ -440,7 +453,7 @@ impl<P: Platform> Reactor<P> {
         if let Some(id) = focus {
             r.note_focused(id);
         }
-        if !saved.is_some_and(|s| r.restore_inner(s)) {
+        if !saved.is_some_and(|s| r.restore_inner(s, true)) {
             r.relayout_all();
         }
         // Nobody is subscribed yet; the first `drain` sets the status.
@@ -468,6 +481,34 @@ impl<P: Platform> Reactor<P> {
 
     pub fn start_at_login(&self) -> bool {
         self.start_at_login
+    }
+
+    /// The saved desks, for the menu; the daemon lists the files.
+    pub fn set_desks(&mut self, desks: Vec<tatami_state::DeskInfo>) {
+        if self.desks != desks {
+            self.desks = desks;
+            self.status_dirty = true;
+        }
+    }
+
+    /// The desk present now: the id of the connected monitors' set.
+    pub fn desk_id(&self) -> String {
+        let uuids: Vec<&str> = self
+            .monitors
+            .values()
+            .map(|m| m.info.uuid.as_str())
+            .collect();
+        tatami_state::desk_id_of(&uuids)
+    }
+
+    /// `3 monitors: A, B, C`, left to right.
+    pub fn desk_name(&self) -> String {
+        let names: Vec<&str> = self
+            .order
+            .iter()
+            .map(|&m| self.monitors[m].info.name.as_str())
+            .collect();
+        tatami_state::desk_name(&names)
     }
 
     pub fn enabled(&self) -> bool {
@@ -847,6 +888,19 @@ impl<P: Platform> Reactor<P> {
             }
         }
         rows.push(MenuItem::separator());
+        // Desks: one layout per set of monitors, the present one checked.
+        // Picking one applies its layout to the monitors present.
+        if !self.desks.is_empty() {
+            let here = self.desk_id();
+            rows.push(MenuItem::header("Desks"));
+            for d in &self.desks {
+                let mut item = MenuItem::action(d.name.clone(), &["desk", "restore", &d.id]);
+                item.checked = d.id == here;
+                item.indent = 1;
+                rows.push(item);
+            }
+            rows.push(MenuItem::separator());
+        }
         if let Some(m) = self.keys.mode() {
             rows.push(MenuItem::action(
                 format!("Leave {m} mode"),
@@ -1647,6 +1701,13 @@ impl<P: Platform> Reactor<P> {
     }
 
     fn on_screens_changed(&mut self) {
+        // Leaving a desk: hand its layout to the daemon before the
+        // vanished monitor's workspaces are folded into the rest, so what
+        // is filed is the arrangement as it was, not the fallback.
+        let before = self.desk_id();
+        let now_present: Vec<String> = self.p.screens().into_iter().map(|s| s.uuid).collect();
+        let changing = !now_present.is_empty() && tatami_state::desk_id_of(&now_present) != before;
+        let leaving = changing.then(|| Box::new(self.snapshot()));
         self.sync_screens();
         if let Some(id) = self.focused {
             self.focused_monitor = self.ws_monitor(self.wins[id].ws);
@@ -1657,6 +1718,15 @@ impl<P: Platform> Reactor<P> {
         self.gc();
         self.status_dirty = true;
         self.dirty = true;
+        if let Some(saved) = leaving {
+            let to = self.desk_id();
+            tracing::info!(from = %saved.desk_name(), to = %self.desk_name(), "desk changed");
+            self.out.push(Outcome::DeskChanged {
+                from: before,
+                saved,
+                to,
+            });
+        }
     }
 
     /// Move every window of `from` into `into` and drop `from`.

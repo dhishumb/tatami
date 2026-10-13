@@ -1272,6 +1272,116 @@ fn removed_monitor_merges_its_workspace_into_the_remaining_one() {
 }
 
 #[test]
+fn unplugging_a_monitor_files_the_desk_and_plugging_it_back_restores_it() {
+    let (mut t, h) = setup(
+        vec![mon("m1", 0.0), mon("m2", W)],
+        &[win("com.a", "a", 0.0), win("com.c", "c", 1200.0)],
+    );
+    let home = tatami_state::desk_id_of(&["m1", "m2"]);
+    let work = tatami_state::desk_id_of(&["m1"]);
+    assert_eq!(t.r.desk_id(), home);
+    assert_eq!(t.r.desk_name(), "2 monitors: Display m1, Display m2");
+
+    // Undock: the layout as it was, m2 included, goes to the daemon.
+    t.fake().set_screens(vec![mon("m1", 0.0)]);
+    t.settle();
+    let filed = t
+        .out
+        .iter()
+        .find_map(|o| match o {
+            Outcome::DeskChanged { from, saved, to } if from == &home && to == &work => {
+                Some(saved.clone())
+            }
+            _ => None,
+        })
+        .expect("desk change filed");
+    assert_eq!(filed.monitors.len(), 2);
+    assert_eq!(filed.desk_id(), home);
+    assert_eq!(t.frame(h[1]), r(500.0, 0.0, 500.0, H), "c folded onto m1");
+    t.out.clear();
+
+    // Dock again: the daemon is told, and hands the filed layout back.
+    t.fake().set_screens(vec![mon("m1", 0.0), mon("m2", W)]);
+    t.settle();
+    assert!(t.out.iter().any(|o| matches!(
+        o,
+        Outcome::DeskChanged { from, to, .. } if from == &work && to == &home
+    )));
+    t.calls();
+    let out = t.r.restore_desk(*filed, t.now);
+    t.out.extend(out);
+    t.settle();
+    assert_eq!(t.frame(h[0]), r(0.0, 0.0, W, H), "a alone on m1 again");
+    assert_eq!(t.frame(h[1]), r(W, 0.0, W, H), "c back on m2");
+    assert!(
+        !t.calls().iter().any(|c| matches!(c, FakeCall::Launch(_))),
+        "a desk switch launches nothing"
+    );
+}
+
+#[test]
+fn a_desk_restore_drops_slots_for_apps_that_are_gone_at_once() {
+    let (mut t, h) = setup(vec![mon("m1", 0.0)], &[win("com.a", "a", 0.0)]);
+    let mut saved = t.r.snapshot();
+    // A second window, of an app that is not running, beside `a`.
+    let SavedNode::Container { children, .. } = &mut saved.monitors[0].workspaces[0].root else {
+        panic!("root is a container");
+    };
+    let mut ghost = children[0].clone();
+    if let SavedNode::Window { window, .. } = &mut ghost {
+        window.bundle_id = Some("com.gone".into());
+        window.app = "Gone".into();
+        window.pid = None;
+        window.cg_id = None;
+    }
+    children.push(ghost);
+    let out = t.r.restore_desk(saved, t.now);
+    t.out.extend(out);
+    t.settle();
+    assert!(!t.calls().iter().any(|c| matches!(c, FakeCall::Launch(_))));
+    assert!(t.r.restore.is_none(), "nothing waited for");
+    assert_eq!(t.frame(h[0]), r(0.0, 0.0, W, H), "a has the screen again");
+}
+
+#[test]
+fn the_menu_lists_desks_with_the_present_one_checked() {
+    let (mut t, _h) = setup(vec![mon("m1", 0.0)], &[win("com.a", "a", 0.0)]);
+    assert!(
+        !t.r.menu_items().iter().any(|m| m.title == "Desks"),
+        "no desks, no section"
+    );
+    let here = t.r.desk_id();
+    t.r.set_desks(vec![
+        tatami_state::DeskInfo {
+            id: here.clone(),
+            name: "1 monitor: Display m1".into(),
+            monitors: 1,
+            saved_at: String::new(),
+        },
+        tatami_state::DeskInfo {
+            id: "0123456789abcdef".into(),
+            name: "3 monitors: A, B, C".into(),
+            monitors: 3,
+            saved_at: String::new(),
+        },
+    ]);
+    let menu = t.r.menu_items();
+    let mine = menu
+        .iter()
+        .find(|m| m.command == ["desk", "restore", &here])
+        .expect("present desk listed");
+    assert!(mine.checked);
+    let other = menu
+        .iter()
+        .find(|m| m.command == ["desk", "restore", "0123456789abcdef"])
+        .unwrap();
+    assert!(!other.checked && other.title == "3 monitors: A, B, C");
+    let args: Vec<String> = vec!["desk".into(), "list".into()];
+    let (resp, out) = t.r.handle_request(&args, t.now);
+    assert!(resp.ok && out.contains(&Outcome::Desk(tatami_protocol::DeskCmd::List)));
+}
+
+#[test]
 fn list_windows_json_returns_data() {
     let (mut t, h) = setup(
         vec![mon("m1", 0.0)],

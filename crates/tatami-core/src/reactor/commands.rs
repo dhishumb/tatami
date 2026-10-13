@@ -310,6 +310,12 @@ impl<P: Platform> Reactor<P> {
                 }
                 Ok(Reply::text(text))
             }
+            Action::Desk(d) => {
+                // Same as checkpoints: the daemon answers the CLI; keys
+                // and the menu hand it over.
+                self.out.push(Outcome::Desk(d.clone()));
+                ok()
+            }
             Action::Checkpoint(c) => {
                 // The CLI path never gets here (the daemon answers it with
                 // the file names); keys and the menu hand it over.

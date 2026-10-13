@@ -15,7 +15,7 @@ use std::path::Path;
 use serde::Deserialize;
 use tatami_keymap::{KeyChord, Keymap, ModeAction, Mods};
 use tatami_protocol::Action;
-use tatami_protocol::action::{CheckpointCmd, ResizeDelta, SplitArg, Toggle};
+use tatami_protocol::action::{CheckpointCmd, DeskCmd, ResizeDelta, SplitArg, Toggle};
 use tatami_protocol::{LayoutArg, MonitorTarget, ResizeDim, WorkspaceTarget};
 
 /// `[(chord, command lines)]`, in file order.
@@ -490,6 +490,12 @@ pub fn command_words(a: &Action) -> String {
         Action::ListApps { .. } => "list-apps".into(),
         Action::ListModes { .. } => "list-modes".into(),
         Action::TriggerBinding { binding, .. } => format!("trigger-binding {binding}"),
+        Action::Desk(d) => match d {
+            DeskCmd::List => "desk list".into(),
+            DeskCmd::Save => "desk save".into(),
+            DeskCmd::Restore(id) => format!("desk restore {id}"),
+            DeskCmd::Delete(id) => format!("desk delete {id}"),
+        },
         Action::Checkpoint(c) => match c {
             CheckpointCmd::Save(None) => "checkpoint save".into(),
             CheckpointCmd::Save(Some(n)) => format!("checkpoint save {n}"),

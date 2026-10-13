@@ -14,8 +14,8 @@ pub mod ipc;
 pub mod sock;
 
 pub use action::{
-    Action, ActionError, CheckpointCmd, Dir, Layout, LayoutArg, MonitorTarget, ResizeDelta,
-    ResizeDim, SplitArg, Toggle, WorkspaceTarget,
+    Action, ActionError, CheckpointCmd, DeskCmd, Dir, Layout, LayoutArg, MonitorTarget,
+    ResizeDelta, ResizeDim, SplitArg, Toggle, WorkspaceTarget,
 };
 pub use frame::{FrameError, MAX_FRAME, read_frame, write_frame};
 pub use geom::{Axis, Point, Rect, Size};

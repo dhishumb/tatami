@@ -224,14 +224,12 @@ rule disagree). `alt+w` `m` carries the whole visible workspace to the
 next monitor, merging it with a same-named workspace there. `alt+m`
 `H`…`L` move one tile onto the monitor in that direction.
 
-Unplug a monitor and its workspaces move onto the main monitor as hidden
-workspaces; one with the same name as a workspace already there is merged
-into it. Plugging the monitor back in does not undo that yet: the
-windows stay where they went. Monitors are identified by their hardware
-UUID, so an arrangement that was saved with every monitor present
-survives a reboot. A two-monitor desk at work and a three-monitor one at
-home is best kept as two checkpoints for now (`tatami checkpoint save
-work`, `restore home`).
+Unplug a monitor and the layout you had is filed under that set of
+monitors (a **desk**, see "Layouts that survive a restart"); its
+workspaces move onto the main monitor meanwhile, merging with same-named
+ones there, unless the smaller desk has a saved layout of its own, which
+is then applied. Plug it back in and the filed layout returns. Monitors
+are identified by their hardware UUID, so this survives a reboot.
 
 AeroSpace's model, one shared pool of workspaces each pinned to a
 monitor, is `model = "shared"` under `[workspaces]`; `summon-workspace`
@@ -368,6 +366,36 @@ tatami checkpoint delete work
 ```
 
 `alt+s c` saves one named by the time.
+
+### Desks: two monitors at work, three at home
+
+A **desk** is the set of monitors connected right now, and each desk
+keeps its own layout in `~/.local/state/tatami/desks/<id>.json`. The
+file is written along with every save, so it is always the latest
+arrangement for that set. Unplug a monitor (or dock elsewhere) and two
+things happen: the layout you just left is filed under its desk, and if
+the desk you are now on was ever saved, its layout is applied to the
+windows that exist. Coming home puts the home arrangement back; going to
+work puts the work one back. Nothing is launched by a desk switch, so an
+app you quit at work is not brought back by plugging in at home; the
+daemon's start-up restore still relaunches as before. A desk never saved
+before behaves as today: the vanished monitor's workspaces fold onto the
+main monitor, and the arrangement you then build is the one filed for
+that desk from then on. At start-up, if the monitors present are not the
+ones `state.json` was saved on but their desk has a file, that file is
+restored instead.
+
+The menu bar item lists every saved desk under **Desks**, the present
+one checked; picking one applies its layout to the monitors present (a
+desk saved on three monitors maps onto two by uuid, then name, then
+size). From a shell:
+
+```sh
+tatami desk list                  # id, name (monitors left to right), when saved; * = present
+tatami desk save                  # file the live layout as this desk's now (saves do this anyway)
+tatami desk restore <id>          # apply a desk's layout to the monitors present
+tatami desk delete <id>
+```
 
 ## Configuration recipes
 

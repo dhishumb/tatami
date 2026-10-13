@@ -215,6 +215,18 @@ pub enum CheckpointCmd {
     Delete(String),
 }
 
+/// `desk …`: the layout kept per set of connected monitors.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeskCmd {
+    List,
+    /// Save the live layout as this desk's.
+    Save,
+    /// Apply a saved desk (by id, from `list`) to the monitors present.
+    Restore(String),
+    Delete(String),
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Action {
@@ -306,6 +318,7 @@ pub enum Action {
         mode: Option<String>,
     },
     Checkpoint(CheckpointCmd),
+    Desk(DeskCmd),
     /// Pin the which-key sheet for the current level.
     Help,
     /// Show the desk: every monitor's workspaces and their windows, on the
@@ -584,6 +597,19 @@ impl Action {
                 binding: one(cmd, &pos, "binding")?.to_string(),
                 mode: f.mode,
             },
+            "desk" => Action::Desk(match pos.as_slice() {
+                [] => DeskCmd::List,
+                [s] if s == "list" => DeskCmd::List,
+                [s] if s == "save" => DeskCmd::Save,
+                [s, id] if s == "restore" => DeskCmd::Restore(id.clone()),
+                [s, id] if s == "delete" => DeskCmd::Delete(id.clone()),
+                _ => {
+                    return Err(usage(
+                        cmd,
+                        "usage: desk [list | save | restore <id> | delete <id>]",
+                    ));
+                }
+            }),
             "checkpoint" => Action::Checkpoint(match pos.as_slice() {
                 [] => CheckpointCmd::Save(None),
                 [s] if s == "list" => CheckpointCmd::List,
@@ -860,6 +886,12 @@ mod tests {
         assert_eq!(p("mode normal"), Action::Normal);
         assert_eq!(p("normal"), Action::Normal);
         assert_eq!(p("enable toggle"), Action::Enable(Toggle::Toggle));
+        assert_eq!(p("desk"), Action::Desk(DeskCmd::List));
+        assert_eq!(
+            p("desk restore 0123456789abcdef"),
+            Action::Desk(DeskCmd::Restore("0123456789abcdef".into()))
+        );
+        assert!(Action::parse(&["desk".to_string(), "frob".to_string()]).is_err());
         assert_eq!(
             p("list-windows --json --all"),
             Action::ListWindows {

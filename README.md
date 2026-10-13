@@ -18,9 +18,11 @@ What it does differently from AeroSpace:
   (`alt+w` workspaces, `alt+m` move, `alt+r` resize, `alt+s` service) that
   open a mode, and a which-key sheet that lists the keys when you pause.
   Nothing is three keys.
-- **Layouts survive a reboot.** The tree is saved as readable JSON a
-  second after every change. On start, missing apps are relaunched and
-  their windows slotted back as they appear. Named checkpoints too.
+- **Layouts survive a reboot, and a dock.** The tree is saved as
+  readable JSON a second after every change. On start, missing apps are
+  relaunched and their windows slotted back as they appear. Each set of
+  monitors (a desk) keeps its own layout: unplug at work, plug in at
+  home, and each arrangement comes back. Named checkpoints too.
 
 ## Install
 
@@ -132,6 +134,8 @@ Any command you can bind, you can run: `tatami focus left`,
 Names follow AeroSpace. Plus:
 
 - `tatami checkpoint save [name]` / `restore <name>` / `list` / `delete <name>`
+- `tatami desk list` / `restore <id>`: one layout per set of monitors,
+  switched automatically on a dock or undock, also from the menu
 - `tatami subscribe workspace focus mode` streams JSON lines (for
   sketchybar and friends; `--all` for every topic)
 - `tatami ping` reports version, Accessibility, window and workspace counts

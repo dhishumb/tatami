@@ -26,6 +26,18 @@ pub fn checkpoints_dir() -> PathBuf {
     state_dir().join("checkpoints")
 }
 
+/// One layout per set of monitors (`desk::desk_id_of`).
+pub fn desks_dir() -> PathBuf {
+    state_dir().join("desks")
+}
+
+/// `None` for anything but a desk id (16 hex digits), so a request can
+/// never name a file outside the directory.
+pub fn desk_path(id: &str) -> Option<PathBuf> {
+    (id.len() == 16 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then(|| desks_dir().join(format!("{id}.json")))
+}
+
 /// Checkpoint names are plain file stems; anything with a separator or a
 /// leading dot is refused so a name can never escape the directory.
 pub fn checkpoint_path(name: &str) -> Option<PathBuf> {

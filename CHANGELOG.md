@@ -12,6 +12,17 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
 
 ### Added
 
+- **A layout per desk.** A laptop docked to two monitors at work and
+  three at home kept one layout: unplugging folded the missing monitor's
+  workspaces into the rest, plugging back in did not undo it, and a
+  restart on the other set of monitors mapped windows onto whatever was
+  there. Each set of connected monitors is now a desk with its own
+  layout file, written along with every save. Unplugging files the
+  layout you were on and, if the desk you are now on was ever saved,
+  applies that one to the windows present; plugging back in does the
+  reverse. A desk switch launches nothing. The menu bar item lists the
+  saved desks with the present one checked, picking one applies it, and
+  `tatami desk list|save|restore|delete` does the same from a shell.
 - **Start at login is a switch.** The installer turned it on with no
   way to turn it off short of `tatami service uninstall`, which also
   stops the daemon. "Start at login" in the menu bar item (checked when

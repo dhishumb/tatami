@@ -100,7 +100,17 @@ impl<P: Platform> Reactor<P> {
     /// match nothing on their monitor's visible workspace.
     pub fn restore(&mut self, saved: SavedState, now: Instant) -> Vec<Outcome> {
         self.now = now;
-        self.restore_inner(saved);
+        self.restore_inner(saved, true);
+        self.finish()
+    }
+
+    /// A desk's layout for the monitors present (a dock or undock, or the
+    /// menu). The windows that exist are re-slotted; nothing is launched
+    /// and nothing is waited for: an app you quit at work is not brought
+    /// back by coming home.
+    pub fn restore_desk(&mut self, saved: SavedState, now: Instant) -> Vec<Outcome> {
+        self.now = now;
+        self.restore_inner(saved, false);
         self.finish()
     }
 
@@ -296,8 +306,11 @@ impl<P: Platform> Reactor<P> {
         }
     }
 
-    /// `false` when nothing was done (another workspace model).
-    pub(super) fn restore_inner(&mut self, saved: SavedState) -> bool {
+    /// `false` when nothing was done (another workspace model). With
+    /// `launch`, missing apps are launched (per `restore.launch_apps`) and
+    /// their windows waited for; without, unmatched slots are dropped at
+    /// the next tick.
+    pub(super) fn restore_inner(&mut self, saved: SavedState, launch: bool) -> bool {
         if saved.model != self.model_name() {
             tracing::warn!(
                 saved = %saved.model,
@@ -423,9 +436,15 @@ impl<P: Platform> Reactor<P> {
             self.focused_monitor = m;
         }
 
-        self.launch_missing();
+        if launch {
+            self.launch_missing();
+        }
         if let Some(s) = self.restore.as_mut() {
-            let deadline = self.now + Duration::from_secs(self.cfg.restore.timeout_s);
+            let deadline = if launch {
+                self.now + Duration::from_secs(self.cfg.restore.timeout_s)
+            } else {
+                self.now
+            };
             for sp in s.specs.values() {
                 s.deadlines.insert(sp.key.clone(), deadline);
             }

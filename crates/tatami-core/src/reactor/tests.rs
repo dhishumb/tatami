@@ -2179,6 +2179,42 @@ fn overview_arrows_walk_the_outline_and_expand_or_collapse_monitors() {
 }
 
 #[test]
+fn the_overview_outlines_the_highlighted_monitor_on_screen() {
+    // The list says which monitor the highlight is on; the desk shows it
+    // too, with an outline that follows the highlight and goes when the
+    // overview closes.
+    let (mut t, h) = setup(
+        vec![mon("m1", 0.0), mon("m2", W)],
+        &[win("com.a", "a", 0.0), win("com.b", "b", W + 10.0)],
+    );
+    t.fake()
+        .set_mouse(tatami_protocol::Point { x: 100.0, y: 100.0 });
+    t.focus(h[0]);
+    t.calls();
+    t.ok("overview");
+    assert!(
+        t.calls().contains(&FakeCall::Mark(Some("m1".into()))),
+        "the highlight starts on a, which is on m1"
+    );
+    let down = |code: u16| RawKeyEvent::Down {
+        keycode: code,
+        mods: Mods::default(),
+        repeat: false,
+    };
+    t.key(down(123)); // ← collapses m1 onto its header
+    t.key(down(125)); // ↓ to m2's header
+    t.drain();
+    assert!(t.calls().contains(&FakeCall::Mark(Some("m2".into()))));
+    t.key(down(53)); // Esc
+    t.drain();
+    assert_eq!(
+        t.calls().iter().rfind(|c| matches!(c, FakeCall::Mark(_))),
+        Some(&FakeCall::Mark(None)),
+        "closing takes the outline down"
+    );
+}
+
+#[test]
 fn a_letter_on_the_overview_focuses_that_window_anywhere() {
     let (mut t, h) = setup(
         vec![mon("m1", 0.0), mon("m2", W)],

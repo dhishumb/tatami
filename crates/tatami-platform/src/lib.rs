@@ -5,6 +5,7 @@
 pub mod apps;
 pub mod ax;
 pub mod event_tap;
+mod mark;
 mod observers;
 mod overlay;
 pub mod runloop;
@@ -69,6 +70,7 @@ pub struct MacPlatform {
     observing: Option<observers::Global>,
     key_tap: Option<KeyTap>,
     overlay: overlay::Overlay,
+    mark: mark::Mark,
     status: statusbar::Status,
 }
 
@@ -106,6 +108,7 @@ impl MacPlatform {
             observing: None,
             key_tap: None,
             overlay,
+            mark: mark::Mark::new(),
             status,
         }
     }
@@ -381,6 +384,10 @@ impl Platform for MacPlatform {
 
     fn show_overlay(&mut self, content: Option<&OverlayContent>, monitor: &MonitorInfo) {
         self.overlay.show(self.mtm, content, monitor);
+    }
+
+    fn mark_monitor(&mut self, monitor: Option<&MonitorInfo>) {
+        self.mark.show(self.mtm, monitor);
     }
 
     fn set_status(&mut self, text: &str) {

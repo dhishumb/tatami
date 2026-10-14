@@ -1707,6 +1707,28 @@ impl<P: Platform> Reactor<P> {
             }
         };
         self.p.show_overlay(content.as_ref(), mon);
+        // The overview's highlight is also shown on the desk itself: an
+        // outline around the monitor it is on, so the list and the room
+        // agree.
+        let mark = if content.is_some() && self.overview && self.prompt.is_none() {
+            self.overview_marked()
+                .and_then(|m| self.monitors.get(m))
+                .map(|m| m.info.clone())
+        } else {
+            None
+        };
+        self.p.mark_monitor(mark.as_ref());
+    }
+
+    /// The monitor the overview's highlight is on: the header itself, or
+    /// the highlighted window's. A key row is on none.
+    fn overview_marked(&self) -> Option<MonitorId> {
+        let (_, items) = self.overview_rows();
+        match items.get(self.overview_sel)? {
+            OverviewItem::Monitor(m) => Some(*m),
+            OverviewItem::Window(w) => self.wins.get(*w).map(|w| self.ws_monitor(w.ws)),
+            OverviewItem::Key { .. } => None,
+        }
     }
 
     fn model_name(&self) -> &'static str {

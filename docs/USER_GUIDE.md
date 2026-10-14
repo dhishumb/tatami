@@ -288,7 +288,9 @@ workspaces (visible one starred) and one line per window with a letter
 (`~` marks a floating one).
 
 - `↑`/`↓` move the highlight over headers and windows; it starts on the
-  window you're in.
+  window you're in. The monitor the highlight is on is outlined on the
+  desk itself, the way Displays settings marks the display you pick, so
+  you can tell which screen a header or window means without counting.
 - `→` expands the highlighted monitor, `←` collapses it (from one of its
   windows too, landing on the header); `Enter` on a header toggles it.
   `1`…`9` expand monitor N and jump to it.

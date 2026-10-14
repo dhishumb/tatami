@@ -361,7 +361,12 @@ nothing and drops unmatched slots at once. At start the daemon prefers
 the present desk's file over `state.json` when the two were saved on
 different monitor sets. The menu lists the files (`set_desks`), the
 present one checked; `desk restore <id>` applies any desk to the
-monitors present through the same monitor mapping.
+monitors present through the same monitor mapping. A desk with no file
+(not in `desks`) is spread instead (`spread_unsaved_desk`): with
+`new_window = "own"`, every tiled window on a monitor whose workspaces
+hold more than one is detached and re-attached to its own lowest empty
+workspace, the focused window's workspace shown; `"tile"` keeps the
+fold.
 
 A restore (start-up, or `profile restore`) is a session:
 

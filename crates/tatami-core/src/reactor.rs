@@ -1914,6 +1914,11 @@ impl<P: Platform> Reactor<P> {
         let changing = !now_present.is_empty() && tatami_state::desk_id_of(&now_present) != before;
         let leaving = changing.then(|| Box::new(self.snapshot()));
         self.sync_screens();
+        // A desk never saved has nothing for the daemon to hand back; it
+        // starts the way the config says a window should.
+        if changing && !self.desks.iter().any(|d| d.id == self.desk_id()) {
+            self.spread_unsaved_desk();
+        }
         if let Some(id) = self.focused {
             self.focused_monitor = self.ws_monitor(self.wins[id].ws);
         }
@@ -1931,6 +1936,55 @@ impl<P: Platform> Reactor<P> {
                 saved,
                 to,
             });
+        }
+    }
+
+    /// Arriving on a desk never saved, with `new_window = "own"`: every
+    /// tiled window gets a workspace of its own on its monitor and fills
+    /// the screen, as a window that just opened would. The fold alone
+    /// piles the vanished monitors' windows into one workspace by name,
+    /// and a laptop on its own would show them all at once. Floating
+    /// windows stay; past the named workspaces the rest share the
+    /// visible one. A monitor whose workspaces already hold one window
+    /// each is left alone.
+    fn spread_unsaved_desk(&mut self) {
+        if self.cfg.workspaces.new_window != tatami_config::NewWindow::OwnWorkspace {
+            return;
+        }
+        for m in self.order.clone() {
+            let mut tiled: Vec<WindowId> = Vec::new();
+            let mut crowded = false;
+            for ws in self.model.workspaces_on(m) {
+                let here: Vec<WindowId> = self
+                    .ws_windows(ws)
+                    .into_iter()
+                    .filter(|&id| self.wins[id].leaf.is_some())
+                    .collect();
+                crowded |= here.len() > 1;
+                tiled.extend(here);
+            }
+            if !crowded {
+                continue;
+            }
+            for &id in &tiled {
+                self.detach(id);
+            }
+            let mut show = None;
+            for id in tiled {
+                let Some(ws) = self.own_workspace(m).or_else(|| self.visible_ws(m)) else {
+                    continue;
+                };
+                self.attach(id, ws, false);
+                if self.focused == Some(id) || show.is_none() {
+                    show = Some(ws);
+                }
+            }
+            if let Some(ws) = show
+                && !self.model.is_visible(ws)
+            {
+                let sw = self.model.switch(m, ws);
+                self.apply_switch(sw, false);
+            }
         }
     }
 

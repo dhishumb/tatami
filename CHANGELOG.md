@@ -71,6 +71,13 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
   visible one. Tiling is a move into another window's workspace
   (`alt+shift+N`, `alt+m N`). `new_window = "tile"` under `[workspaces]`
   keeps i3's open-beside-the-focused-tile behaviour.
+- **The laptop alone shows one app at a time.** Unplugging every
+  monitor folded four monitors' worth of windows into the laptop's
+  workspaces by name, so workspace 1 held every app that had been on a
+  1, tiled nine-up on a 14-inch screen. Arriving on a desk never saved
+  now gives every tiled window a workspace of its own on its monitor,
+  each filling the screen, when `new_window = "own"` (the default);
+  `"tile"` keeps the fold. A desk saved before is restored as it was.
 - **The overview outlines the monitor you are on.** Walking the `alt+o`
   list, the number and name of a header say which monitor it is, and on
   a desk of four that still meant counting. The monitor the highlight is

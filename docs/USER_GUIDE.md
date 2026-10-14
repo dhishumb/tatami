@@ -227,9 +227,12 @@ next monitor, merging it with a same-named workspace there. `alt+m`
 
 Unplug a monitor and the layout you had is filed under that set of
 monitors (a **desk**, see "Layouts that survive a restart"); its
-workspaces move onto the main monitor meanwhile, merging with same-named
-ones there, unless the smaller desk has a saved layout of its own, which
-is then applied. Plug it back in and the filed layout returns. Monitors
+workspaces move onto the main monitor meanwhile, unless the smaller desk
+has a saved layout of its own, which is then applied. On a desk never
+saved, every window gets a workspace to itself and fills the screen (the
+laptop alone shows one app at a time, `alt+1`…`alt+9` between them);
+with `new_window = "tile"` they merge into same-named workspaces
+instead. Plug the monitor back in and the filed layout returns. Monitors
 are identified by their hardware UUID, so this survives a reboot.
 
 AeroSpace's model, one shared pool of workspaces each pinned to a
@@ -393,10 +396,12 @@ the desk you are now on was ever saved, its layout is applied to the
 windows that exist. Coming home puts the home arrangement back; going to
 work puts the work one back. Nothing is launched by a desk switch, so an
 app you quit at work is not brought back by plugging in at home; the
-daemon's start-up restore still relaunches as before. A desk never saved
-before behaves as today: the vanished monitor's workspaces fold onto the
-main monitor, and the arrangement you then build is the one filed for
-that desk from then on. At start-up, if the monitors present are not the
+daemon's start-up restore still relaunches as before. On a desk never
+saved before, every tiled window gets a workspace of its own on the
+monitor it landed on, so each fills its screen (with `new_window =
+"tile"` the vanished monitor's workspaces fold into same-named ones
+instead); the arrangement you then build is the one filed for that desk
+from then on. At start-up, if the monitors present are not the
 ones `state.json` was saved on but their desk has a file, that file is
 restored instead.
 

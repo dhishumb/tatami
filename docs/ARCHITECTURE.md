@@ -363,8 +363,9 @@ different monitor sets. The menu lists the files (`set_desks`), the
 present one checked; `desk restore <id>` applies any desk to the
 monitors present through the same monitor mapping. A desk with no file
 (not in `desks`) is spread instead (`spread_unsaved_desk`): with
-`new_window = "own"`, every tiled window on a monitor whose workspaces
-hold more than one is detached and re-attached to its own lowest empty
+`new_window = "own"`, on a monitor whose workspaces do not already hold
+one app each, every tiled window is detached and the apps (by bundle
+id, in order of first appearance) are re-attached one per lowest empty
 workspace, the focused window's workspace shown; `"tile"` keeps the
 fold.
 

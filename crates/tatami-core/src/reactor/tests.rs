@@ -1428,39 +1428,46 @@ fn unplugging_a_monitor_files_the_desk_and_plugging_it_back_restores_it() {
 }
 
 #[test]
-fn a_desk_never_saved_gives_every_window_its_own_workspace() {
+fn a_desk_never_saved_gives_every_app_its_own_workspace() {
     // Unplugging to the laptop alone folds the other monitors' windows
-    // onto it. With `new_window = "own"` each then gets a workspace to
-    // itself and fills the screen, instead of all of them tiling into
-    // one; a desk that was saved is left to the daemon to restore.
+    // onto it. With `new_window = "own"` each app then gets a workspace
+    // to itself, its windows tiled together there, instead of every
+    // window tiling into one; a desk that was saved is left to the
+    // daemon to restore.
     let wins = || {
         [
             win("com.a", "a", 0.0),
-            win("com.b", "b", W),
-            win("com.c", "c", W + 500.0),
+            win("com.b", "b1", W),
+            win("com.b", "b2", W + 400.0),
+            win("com.c", "c", W + 800.0),
         ]
     };
     let (f, h) = fake_with(vec![mon("m1", 0.0), mon("m2", W)], &wins());
     let mut t = start(f, cfg_own(), None);
     let m1 = t.mon_id("m1");
+    t.focus(h[0]);
     t.fake().set_screens(vec![mon("m1", 0.0)]);
     t.settle();
-    let ids: Vec<_> = h.iter().map(|h| t.r.by_handle[h]).collect();
-    let wss: Vec<_> = ids.iter().map(|&id| t.r.wins[id].ws).collect();
+    let ws = |t: &T, i: usize| t.r.wins[t.r.by_handle[&h[i]]].ws;
+    assert_eq!(ws(&t, 1), ws(&t, 2), "both b windows share a workspace");
     assert!(
-        wss[0] != wss[1] && wss[1] != wss[2] && wss[0] != wss[2],
-        "one workspace each"
+        ws(&t, 0) != ws(&t, 1) && ws(&t, 1) != ws(&t, 3) && ws(&t, 0) != ws(&t, 3),
+        "one workspace per app"
     );
-    let vis = t.r.model.visible_on(m1).unwrap();
-    let shown = ids
-        .iter()
-        .position(|&id| t.r.wins[id].ws == vis)
-        .expect("one of them is on screen");
     assert_eq!(
-        t.frame(h[shown]),
-        r(0.0, 0.0, W, H),
-        "and it fills the laptop"
+        t.r.model.visible_on(m1),
+        Some(ws(&t, 0)),
+        "the focused app shows"
     );
+    assert_eq!(t.frame(h[0]), r(0.0, 0.0, W, H), "and fills the laptop");
+    let name = t.r.ws_name(ws(&t, 1)).to_string();
+    t.ok(&format!("workspace {name}"));
+    assert_eq!(
+        t.frame(h[1]),
+        r(0.0, 0.0, 500.0, H),
+        "b's windows tile together"
+    );
+    assert_eq!(t.frame(h[2]), r(500.0, 0.0, 500.0, H));
 
     let (f, h) = fake_with(vec![mon("m1", 0.0), mon("m2", W)], &wins());
     let mut t = start(f, cfg_own(), None);

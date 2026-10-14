@@ -1939,44 +1939,61 @@ impl<P: Platform> Reactor<P> {
         }
     }
 
-    /// Arriving on a desk never saved, with `new_window = "own"`: every
-    /// tiled window gets a workspace of its own on its monitor and fills
-    /// the screen, as a window that just opened would. The fold alone
+    /// Arriving on a desk never saved, with `new_window = "own"`: on each
+    /// monitor every app gets a workspace of its own, its windows tiled
+    /// together there, as macOS groups windows by app. The fold alone
     /// piles the vanished monitors' windows into one workspace by name,
-    /// and a laptop on its own would show them all at once. Floating
-    /// windows stay; past the named workspaces the rest share the
-    /// visible one. A monitor whose workspaces already hold one window
-    /// each is left alone.
+    /// and a laptop on its own would show them all at once; one per
+    /// window would run past nine. Floating windows stay; past the named
+    /// workspaces the rest share the visible one. A monitor whose
+    /// workspaces already hold one app each is left alone.
     fn spread_unsaved_desk(&mut self) {
         if self.cfg.workspaces.new_window != tatami_config::NewWindow::OwnWorkspace {
             return;
         }
         for m in self.order.clone() {
-            let mut tiled: Vec<WindowId> = Vec::new();
-            let mut crowded = false;
+            // Apps in order of first appearance, each with its windows.
+            let mut groups: Vec<(String, Vec<WindowId>)> = Vec::new();
+            let mut tidy = true;
             for ws in self.model.workspaces_on(m) {
-                let here: Vec<WindowId> = self
-                    .ws_windows(ws)
-                    .into_iter()
-                    .filter(|&id| self.wins[id].leaf.is_some())
-                    .collect();
-                crowded |= here.len() > 1;
-                tiled.extend(here);
+                let mut apps_here: Vec<String> = Vec::new();
+                for id in self.ws_windows(ws) {
+                    if self.wins[id].leaf.is_none() {
+                        continue;
+                    }
+                    let key = app_key(&self.wins[id].w);
+                    match groups.iter_mut().find(|g| g.0 == key) {
+                        Some(g) => {
+                            // Seen in an earlier workspace: the app is split.
+                            tidy &= g.1.iter().all(|&o| self.wins[o].ws == ws);
+                            g.1.push(id);
+                        }
+                        None => groups.push((key.clone(), vec![id])),
+                    }
+                    if !apps_here.contains(&key) {
+                        apps_here.push(key);
+                    }
+                }
+                tidy &= apps_here.len() <= 1;
             }
-            if !crowded {
+            if tidy {
                 continue;
             }
-            for &id in &tiled {
-                self.detach(id);
+            for g in &groups {
+                for &id in &g.1 {
+                    self.detach(id);
+                }
             }
             let mut show = None;
-            for id in tiled {
+            for (_, ids) in groups {
                 let Some(ws) = self.own_workspace(m).or_else(|| self.visible_ws(m)) else {
                     continue;
                 };
-                self.attach(id, ws, false);
-                if self.focused == Some(id) || show.is_none() {
-                    show = Some(ws);
+                for id in ids {
+                    self.attach(id, ws, false);
+                    if self.focused == Some(id) || show.is_none() {
+                        show = Some(ws);
+                    }
                 }
             }
             if let Some(ws) = show
@@ -3031,4 +3048,12 @@ impl<P: Platform> Reactor<P> {
 
 fn mon_frame(mons: &SlotMap<MonitorId, Mon>, m: MonitorId) -> Rect {
     mons.get(m).map(|m| m.info.frame).unwrap_or_default()
+}
+
+/// What "the same app" means for grouping: the bundle id, else the
+/// process.
+fn app_key(w: &Window) -> String {
+    w.bundle_id
+        .clone()
+        .unwrap_or_else(|| format!("pid:{}", w.pid))
 }

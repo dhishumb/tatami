@@ -149,6 +149,12 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
   A focus report for a parked window of the app we just raised, within
   a second, is now ignored and the asked-for window raised again; a
   real Cmd-tab or Dock click a moment later still switches.
+- **Granting Accessibility slots the windows back.** A daemon that
+  started without the grant kept the saved layout waiting, but when trust
+  arrived it rescanned the screen and treated every window it found as
+  new, opening a workspace per window; the saved slots then timed out a
+  minute later. A window found by a rescan now takes its saved slot like
+  one that just opened.
 - **A start without Accessibility keeps the saved layout.** A daemon
   that starts untrusted sees no window, and the restore session gave up
   after a minute and the next save wrote the empty desk over the real

@@ -2190,7 +2190,10 @@ impl<P: Platform> Reactor<P> {
         if info.minimized || kind == WindowKind::NativeFullscreen {
             return;
         }
-        if fresh && self.try_restore_slot(id) {
+        // A saved slot wins however the window turned up: a rescan after
+        // trust arrives finds every window at once, and each one belongs
+        // in its slot, not on the next empty workspace.
+        if self.try_restore_slot(id) {
             return;
         }
         self.attach(id, ws, fresh);

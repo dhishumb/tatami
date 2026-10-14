@@ -1205,6 +1205,71 @@ fn a_restore_waits_for_trust_before_giving_up() {
     assert!(t.r.restore.is_none(), "given up after the full timeout");
 }
 
+/// `(workspace name, window titles in tree order)` per workspace of the
+/// first monitor.
+fn titles_by_workspace(saved: &SavedState) -> Vec<(String, Vec<String>)> {
+    fn walk(n: &SavedNode, out: &mut Vec<String>) {
+        match n {
+            SavedNode::Window { window, .. } => out.push(window.title.clone()),
+            SavedNode::Container { children, .. } => children.iter().for_each(|c| walk(c, out)),
+        }
+    }
+    saved.monitors[0]
+        .workspaces
+        .iter()
+        .map(|w| {
+            let mut t = Vec::new();
+            walk(&w.root, &mut t);
+            (w.name.clone(), t)
+        })
+        .collect()
+}
+
+#[test]
+fn trust_arriving_puts_the_present_windows_into_their_saved_slots() {
+    // A daemon that starts without Accessibility sees no window. When
+    // trust arrives, the rescan must fill the saved slots with the windows
+    // that were there all along, not open a workspace per window and let
+    // the slots time out.
+    let (mut t, h) = setup(
+        vec![mon("m1", 0.0)],
+        &[
+            win("com.a", "a", 0.0),
+            win("com.b", "b", 400.0),
+            win("com.c", "c", 800.0),
+        ],
+    );
+    t.focus(h[2]);
+    t.ok("move-node-to-workspace 2");
+    let saved = t.r.snapshot();
+    let want = titles_by_workspace(&saved);
+    assert_eq!(
+        want,
+        vec![
+            ("1".to_string(), vec!["a".to_string(), "b".to_string()]),
+            ("2".to_string(), vec!["c".to_string()]),
+        ]
+    );
+
+    let (f, _) = fake_with(vec![mon("m1", 0.0)], &[]);
+    let mut t = start(f, cfg_own(), Some(saved));
+    t.event(PlatformEvent::TrustChanged(false));
+    assert!(t.r.restore.is_some(), "every slot is pending");
+    // The windows exist; untrusted, nothing reported them.
+    for (bundle, title, x) in [
+        ("com.a", "a", 0.0),
+        ("com.b", "b", 400.0),
+        ("com.c", "c", 800.0),
+    ] {
+        let pid = t.fake().add_app(bundle, title);
+        t.fake().add_window(pid, title, r(x, 100.0, 300.0, 300.0));
+    }
+    t.fake().take_events();
+    t.event(PlatformEvent::TrustChanged(true));
+    assert!(t.r.restore.is_none(), "every slot filled at trust");
+    assert_eq!(titles_by_workspace(&t.r.snapshot()), want);
+}
+
 #[test]
 fn live_restore_reslots_existing_windows() {
     let (mut t, h) = setup(

@@ -606,14 +606,24 @@ impl<P: Platform> Reactor<P> {
                 }
             }
             PlatformEvent::ScreensChanged => self.on_screens_changed(),
-            PlatformEvent::Command(args) => match Action::parse(&args) {
-                Ok(a) => {
-                    if let Err(e) = self.run_one(&a) {
-                        tracing::warn!(?args, "menu command failed: {e}");
+            // A menu row may chain commands with a `;` word (`focus-monitor
+            // 2 ; workspace 3`); the chain stops at the first failure.
+            PlatformEvent::Command(args) => {
+                for part in args.split(|a| a == ";") {
+                    match Action::parse(part) {
+                        Ok(a) => {
+                            if let Err(e) = self.run_one(&a) {
+                                tracing::warn!(?args, "menu command failed: {e}");
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(?args, "menu command: {e}");
+                            break;
+                        }
                     }
                 }
-                Err(e) => tracing::warn!(?args, "menu command: {e}"),
-            },
+            }
             PlatformEvent::TrustChanged(on) => {
                 let was = self.trusted;
                 self.trusted = on;
@@ -925,6 +935,16 @@ impl<P: Platform> Reactor<P> {
                 ""
             };
             rows.push(MenuItem::header(format!("{}{mark}", info.name)));
+            // The row switches the monitor it is listed under, not the
+            // focused one: the menu bar is on one monitor and the pointer
+            // sits there while the menu is open. Its index is the one
+            // `focus-monitor N` and `list-monitors` use.
+            let idx = self
+                .order
+                .iter()
+                .position(|&m| m == id)
+                .map_or(1, |i| i + 1)
+                .to_string();
             let visible = self.model.visible_on(id);
             for ws in self.model.workspaces_on(id) {
                 let Some(name) = self.model.name_of(ws) else {
@@ -936,7 +956,8 @@ impl<P: Platform> Reactor<P> {
                 } else {
                     format!("{name}  ({n} windows)")
                 };
-                let mut item = MenuItem::action(title, &["workspace", name]);
+                let mut item =
+                    MenuItem::action(title, &["focus-monitor", &idx, ";", "workspace", name]);
                 item.checked = visible == Some(ws);
                 item.indent = 1;
                 rows.push(item);

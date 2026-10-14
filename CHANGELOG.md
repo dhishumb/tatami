@@ -149,6 +149,13 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
   A focus report for a parked window of the app we just raised, within
   a second, is now ignored and the asked-for window raised again; a
   real Cmd-tab or Dock click a moment later still switches.
+- **A workspace picked from the menu switches the monitor it is listed
+  under.** The rows sit under their monitor's header but sent a bare
+  `workspace N`, which acts on the focused monitor, and clicking the menu
+  bar never changes that; so picking "2" under the second monitor could
+  switch the first one instead, and two monitors ended up showing the
+  same workspace. Each row now names its monitor (`focus-monitor N ;
+  workspace W`), focus goes there, and the other monitors keep theirs.
 - **Granting Accessibility slots the windows back.** A daemon that
   started without the grant kept the saved layout waiting, but when trust
   arrived it rescanned the screen and treated every window it found as

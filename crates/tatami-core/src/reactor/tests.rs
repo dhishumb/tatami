@@ -2397,6 +2397,35 @@ fn overview_window_rows_carry_a_focus_command_for_clicks() {
 }
 
 #[test]
+fn a_menu_workspace_row_switches_the_monitor_it_is_listed_under() {
+    // Each monitor has its own workspaces and the row sits under its
+    // monitor's header; picking it must switch that monitor, whichever
+    // one has focus (the menu bar is usually on another one).
+    let (mut t, h) = setup(
+        vec![mon("m1", 0.0), mon("m2", W)],
+        &[win("com.a", "a", 0.0), win("com.b", "b", W)],
+    );
+    t.focus(h[1]);
+    t.ok("workspace 2");
+    assert_eq!(t.visible_name("m2"), "2");
+    t.focus(h[0]);
+    assert_eq!(t.r.focused_monitor, t.mon_id("m1"));
+    let rows = t.r.menu_items();
+    let m2 = rows
+        .iter()
+        .position(|r| r.title.starts_with("Display m2"))
+        .unwrap();
+    let row = rows[m2 + 1..]
+        .iter()
+        .find(|r| r.title.starts_with("1 "))
+        .unwrap();
+    t.event(PlatformEvent::Command(row.command.clone()));
+    assert_eq!(t.visible_name("m2"), "1", "m2 switched");
+    assert_eq!(t.visible_name("m1"), "1", "m1 untouched");
+    assert_eq!(t.r.focused_monitor, t.mon_id("m2"));
+}
+
+#[test]
 fn overview_monitor_setting_overrides_the_main_display() {
     let (f, _h) = fake_with(
         vec![mon("m1", 0.0), mon("m2", W)],

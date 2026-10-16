@@ -263,8 +263,9 @@ pub trait Platform {
     fn show_overlay(&mut self, content: Option<&OverlayContent>, monitor: &MonitorInfo);
     /// Outline one rectangle on screen (AX coordinates), the way Displays
     /// settings marks the display you picked: the overview's highlighted
-    /// monitor or window. `None` takes the outline down.
-    fn mark_frame(&mut self, frame: Option<Rect>);
+    /// monitor, or window (`filled`: a wash over it too, a border alone
+    /// hides against a window's own edge). `None` takes the outline down.
+    fn mark_frame(&mut self, frame: Option<Rect>, filled: bool);
     /// Menu bar status item text (shown next to the icon).
     fn set_status(&mut self, text: &str);
     /// Replace the status item's menu. Picking an item emits

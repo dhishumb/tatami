@@ -44,7 +44,7 @@ pub enum FakeCall {
     /// Uuid of the monitor a sheet was shown on.
     OverlayOn(String),
     /// Uuid of the monitor outlined, `None` when the outline came down.
-    Mark(Option<Rect>),
+    Mark(Option<Rect>, bool),
     Status(String),
 }
 
@@ -354,8 +354,8 @@ impl Platform for FakePlatform {
         }
     }
 
-    fn mark_frame(&mut self, frame: Option<Rect>) {
-        self.st.get_mut().calls.push(FakeCall::Mark(frame));
+    fn mark_frame(&mut self, frame: Option<Rect>, filled: bool) {
+        self.st.get_mut().calls.push(FakeCall::Mark(frame, filled));
     }
 
     fn set_status(&mut self, text: &str) {

@@ -2184,18 +2184,9 @@ fn overview_arrows_walk_the_outline_and_expand_or_collapse_monitors() {
         t.r.overview_items[t.r.overview_sel],
         OverviewItem::Window(a)
     );
-    // → on a window opens its actions, ← comes back to the same place.
+    // → on a window changes nothing.
     assert_eq!(t.key(down(124)), KeyDisposition::Swallow);
-    assert!(matches!(
-        t.r.overview_items.first(),
-        Some(OverviewItem::Act(_))
-    ));
-    assert_eq!(t.key(down(123)), KeyDisposition::Swallow);
     assert_eq!(t.r.overview_items.len(), 3);
-    assert_eq!(
-        t.r.overview_items[t.r.overview_sel],
-        OverviewItem::Window(a)
-    );
     // ← from a window collapses its monitor and lands on the header.
     assert_eq!(t.key(down(123)), KeyDisposition::Swallow);
     assert_eq!(
@@ -2261,8 +2252,9 @@ fn the_overview_outlines_the_highlighted_monitor_on_screen() {
     t.calls();
     t.ok("overview");
     assert!(
-        t.calls().contains(&FakeCall::Mark(Some(r(0.0, 0.0, W, H)))),
-        "the highlight starts on a, outlined where it stands"
+        t.calls()
+            .contains(&FakeCall::Mark(Some(r(0.0, 0.0, W, H)), true)),
+        "the highlight starts on a, outlined and washed where it stands"
     );
     let down = |code: u16| RawKeyEvent::Down {
         keycode: code,
@@ -2273,14 +2265,15 @@ fn the_overview_outlines_the_highlighted_monitor_on_screen() {
     t.key(down(125)); // ↓ to m2's header
     t.drain();
     assert!(
-        t.calls().contains(&FakeCall::Mark(Some(r(W, 0.0, W, H)))),
-        "a header outlines its monitor"
+        t.calls()
+            .contains(&FakeCall::Mark(Some(r(W, 0.0, W, H)), false)),
+        "a header outlines its monitor, no wash"
     );
     t.key(down(53)); // Esc
     t.drain();
     assert_eq!(
-        t.calls().iter().rfind(|c| matches!(c, FakeCall::Mark(_))),
-        Some(&FakeCall::Mark(None)),
+        t.calls().iter().rfind(|c| matches!(c, FakeCall::Mark(..))),
+        Some(&FakeCall::Mark(None, false)),
         "closing takes the outline down"
     );
 }
@@ -2787,8 +2780,8 @@ fn resting_on_a_hidden_window_in_the_overview_peeks_at_its_workspace() {
         "its workspace is shown on its monitor"
     );
     assert_eq!(
-        t.calls().iter().rfind(|c| matches!(c, FakeCall::Mark(_))),
-        Some(&FakeCall::Mark(Some(r(W, 0.0, W, H)))),
+        t.calls().iter().rfind(|c| matches!(c, FakeCall::Mark(..))),
+        Some(&FakeCall::Mark(Some(r(W, 0.0, W, H)), true)),
         "and the window is outlined where it now shows"
     );
     assert_eq!(
@@ -2809,10 +2802,11 @@ fn resting_on_a_hidden_window_in_the_overview_peeks_at_its_workspace() {
 }
 
 #[test]
-fn the_overview_can_move_a_window_to_any_workspace_or_close_it() {
-    // `→` on a window opens its actions: a letter moves it to that
-    // workspace (an existing one or a fresh one on any monitor), `⌫`
-    // closes it; the overview stays open.
+fn shift_on_the_overview_sends_the_highlighted_window_or_closes_it() {
+    // Shift acts on the highlighted window as the chords do on the
+    // focused one: ⇧→ sends it to the next monitor's visible workspace,
+    // ⇧2 to workspace 2 of its monitor (made on the spot), ⇧⌫ closes it.
+    // The overview stays open through all of it.
     let (mut t, h) = setup(
         vec![mon("m1", 0.0), mon("m2", W)],
         &[
@@ -2826,59 +2820,50 @@ fn the_overview_can_move_a_window_to_any_workspace_or_close_it() {
         .set_mouse(tatami_protocol::Point { x: 100.0, y: 100.0 });
     t.focus(h[0]);
     t.ok("overview");
-    let down = |code: u16| RawKeyEvent::Down {
+    let shifted = |code: u16| RawKeyEvent::Down {
         keycode: code,
-        mods: Mods::default(),
+        mods: Mods {
+            shift: true,
+            ..Mods::default()
+        },
         repeat: false,
     };
-    assert_eq!(t.key(down(124)), KeyDisposition::Swallow); // → on a
-    t.drain();
-    assert_eq!(
-        t.r.overview_items.first(),
-        Some(&OverviewItem::Act(super::WindowAct::Close)),
-        "the menu opens on close"
-    );
-    let text: Vec<String> =
-        t.r.overview_content()
-            .rows
-            .into_iter()
-            .map(|r| r.desc)
-            .collect();
-    assert!(text.iter().any(|d| d.contains("move to")), "{text:?}");
-    assert!(
-        text.iter().any(|d| d.contains("new workspace 2")),
-        "a fresh workspace is offered: {text:?}"
-    );
-    // Destinations, lettered: a = m1 new 2, b = m2 workspace 1, c = m2 new 2.
-    assert_eq!(t.key(down(11)), KeyDisposition::Swallow); // `b`
-    t.settle();
     let a = t.r.by_handle[&h[0]];
+    let c = t.r.by_handle[&h[2]];
+    assert_eq!(t.key(shifted(124)), KeyDisposition::Swallow); // ⇧→
+    t.settle();
     assert_eq!(
-        t.r.ws_monitor(t.r.wins[a].ws),
-        m2,
-        "a moved to the second monitor"
-    );
-    assert_eq!(
-        t.r.wins[a].ws, t.r.wins[t.r.by_handle[&h[2]]].ws,
-        "into c's workspace"
+        t.r.wins[a].ws, t.r.wins[c].ws,
+        "a joined c on the second monitor"
     );
     assert!(t.r.overview, "the overview stays open");
-    assert!(t.r.overview_act.is_none(), "back on the list");
     assert_eq!(
         t.r.overview_items.get(t.r.overview_sel),
         Some(&OverviewItem::Window(a)),
-        "the highlight follows the moved window"
+        "the highlight follows the window"
     );
     assert_eq!(t.frame(h[1]), r(0.0, 0.0, W, H), "b has the first monitor");
-    // Now close it from the same menu.
-    t.key(down(124)); // →
+    assert_eq!(
+        t.r.focused,
+        Some(t.r.by_handle[&h[1]]),
+        "focus stays on the workspace a left, as after the chord"
+    );
+    assert_eq!(t.key(shifted(19)), KeyDisposition::Swallow); // ⇧2
+    t.settle();
+    assert_eq!(t.r.ws_name(t.r.wins[a].ws), "2", "a is on workspace 2");
+    assert_eq!(t.r.ws_monitor(t.r.wins[a].ws), m2, "of the second monitor");
+    assert_ne!(t.r.wins[a].ws, t.r.wins[c].ws);
     t.calls();
-    assert_eq!(t.key(down(51)), KeyDisposition::Swallow); // ⌫
+    assert_eq!(t.key(shifted(51)), KeyDisposition::Swallow); // ⇧⌫
     t.settle();
     assert!(t.calls().contains(&FakeCall::Close(h[0])));
     assert!(!t.r.by_handle.contains_key(&h[0]), "a is gone");
     assert!(t.r.overview, "the overview is still open");
-    t.key(down(53)); // Esc
+    t.key(RawKeyEvent::Down {
+        keycode: 53,
+        mods: Mods::default(),
+        repeat: false,
+    });
     t.drain();
     assert!(!t.r.overview);
 }

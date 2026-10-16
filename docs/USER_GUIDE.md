@@ -247,7 +247,9 @@ restart.
   visible workspace when you let go.
 - **Drag a tile over another tile** on the same monitor and the two swap.
 - Drag it anywhere else, or resize it by its edges, and it snaps back.
-- Floating windows go wherever you put them.
+- Floating windows go wherever you put them. Put one on another monitor
+  and it belongs to that monitor's workspace from then on, so it hides
+  and shows with that monitor, not the one it was floated on.
 
 tatami decides 200 ms after the last move event, so a drag is never
 fought mid-way.

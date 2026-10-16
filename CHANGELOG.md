@@ -153,6 +153,13 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
 
 ### Fixed
 
+- **A floating window moved to another monitor now belongs there.** It
+  kept the workspace it was floated in, so a terminal floated on the left
+  monitor and put on the centre one was hidden by `alt+2` on the left and
+  brought back by `alt+1` fitted into the left monitor, while the app's
+  own window placement pulled it to the centre again. A float that comes
+  to rest with its centre on another monitor joins the workspace showing
+  there, where it stands; the window itself is not moved.
 - **Two identical monitors are two monitors.** macOS derives a display's
   uuid from its EDID, and identical panels without a serial share one.
   Matched by uuid, the pair was a single monitor to the daemon: the one

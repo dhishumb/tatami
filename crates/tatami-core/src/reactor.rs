@@ -2108,7 +2108,11 @@ impl<P: Platform> Reactor<P> {
 
     /// A hand-dragged tile has come to rest. Dropped on another monitor it
     /// moves there; dropped over a sibling tile the two swap; otherwise it
-    /// snaps back. (Resizing by hand also ends here and snaps back.)
+    /// snaps back. (Resizing by hand also ends here and snaps back.) A
+    /// floating window dropped on another monitor joins the workspace
+    /// showing there and is otherwise left alone: a float that kept its
+    /// old workspace was hidden with it, and shown again fitted into the
+    /// old monitor.
     fn settle_drag(&mut self) {
         let Some((id, at)) = self.drag else {
             return;
@@ -2120,7 +2124,8 @@ impl<P: Platform> Reactor<P> {
         let Some(m) = self.wins.get(id) else {
             return;
         };
-        if !m.w.kind.in_tree() {
+        let floating = m.w.kind == WindowKind::Floating;
+        if !m.w.kind.in_tree() && !floating {
             return;
         }
         let (ws, c) = (m.ws, m.w.frame.center());
@@ -2134,10 +2139,19 @@ impl<P: Platform> Reactor<P> {
             && tm != home
             && let Some(to) = self.visible_ws(tm)
         {
-            if let Err(e) = self.move_node(id, to, true) {
+            if floating {
+                // Already where the user put it; only its workspace follows.
+                self.detach(id);
+                self.attach(id, to, false);
+                self.dirty = true;
+                self.gc();
+            } else if let Err(e) = self.move_node(id, to, true) {
                 tracing::debug!("drag to monitor: {e}");
                 self.relayout(ws);
             }
+            return;
+        }
+        if floating {
             return;
         }
         let other = self.ws_windows(ws).into_iter().find(|&o| {
@@ -2967,7 +2981,12 @@ impl<P: Platform> Reactor<P> {
                 self.drag = Some((id, self.now + DRAG_SETTLE));
             }
             WindowKind::Floating => {
-                if !self.model.is_visible(ws) {
+                if self.model.is_visible(ws) {
+                    // Carried to another monitor it changes workspace once
+                    // it comes to rest (`settle_drag`); otherwise a float
+                    // goes where the user puts it.
+                    self.drag = Some((id, self.now + DRAG_SETTLE));
+                } else {
                     self.relayout(ws);
                 }
             }

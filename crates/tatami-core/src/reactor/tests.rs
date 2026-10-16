@@ -2693,3 +2693,33 @@ fn two_displays_sharing_a_uuid_are_two_monitors() {
     assert_eq!(t.r.order.len(), 2);
     assert_eq!(t.frame(h[1]), r(W, 0.0, W, H), "b stays on the right twin");
 }
+
+#[test]
+fn a_float_carried_to_another_monitor_changes_workspace() {
+    // plyterm, floated on the left monitor and then put on the centre
+    // one, stayed in the left workspace 1: `alt+2` there hid it along
+    // with the tiles, and `alt+1` showed it fitted into the left monitor.
+    let (mut t, h) = setup(
+        vec![mon("m1", 0.0), mon("m2", W)],
+        &[win("com.a", "a", 0.0), win("com.b", "b", 300.0)],
+    );
+    let m2 = t.mon_id("m2");
+    t.focus(h[1]);
+    t.ok("layout floating");
+    let there = Rect::new(W + 100.0, 50.0, 400.0, 300.0);
+    t.fake().user_set_frame(h[1], there);
+    t.settle();
+    let b = t.r.wins[t.r.by_handle[&h[1]]].ws;
+    assert_eq!(t.r.ws_monitor(b), m2, "b now belongs to the second monitor");
+    assert_eq!(t.frame(h[1]), there, "and was not moved");
+    // Switching the first monitor away and back leaves it alone.
+    t.ok("workspace 2");
+    assert_eq!(t.frame(h[1]), there, "b is not hidden with monitor 1");
+    t.ok("workspace 1");
+    assert_eq!(t.frame(h[1]), there, "nor fitted back into it");
+    assert_eq!(
+        t.frame(h[0]),
+        r(0.0, 0.0, W, H),
+        "a has monitor 1 to itself"
+    );
+}

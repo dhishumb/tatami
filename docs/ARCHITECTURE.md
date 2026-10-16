@@ -230,7 +230,9 @@ Our `fullscreen` keeps the leaf and fills the visible area inside the
 outer gaps. A tile dragged by hand is left alone until 200 ms after its
 last move event (`settle_drag`): dropped on another monitor it moves to
 that monitor's visible workspace; over a sibling tile the two swap;
-otherwise it snaps back. Hand resizes snap back too.
+otherwise it snaps back. Hand resizes snap back too. A floating window
+dropped on another monitor joins the workspace showing there, where it
+stands; anywhere else it is left alone.
 
 ## Focus
 

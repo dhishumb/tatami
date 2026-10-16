@@ -199,10 +199,44 @@ pub enum PlatformError {
     Other(String),
 }
 
+/// `screens` with every uuid unique: a uuid two or more displays share
+/// gets `#2`, `#3`… appended, left to right then top to bottom, so the
+/// suffix is the same on every connection and a saved desk still matches.
+/// Without it two identical monitors would be one to the reactor, and
+/// every window of the pair would be laid out on whichever was listed
+/// last.
+pub fn distinct_screens(mut screens: Vec<MonitorInfo>) -> Vec<MonitorInfo> {
+    let mut order: Vec<usize> = (0..screens.len()).collect();
+    order.sort_by(|&a, &b| {
+        let (fa, fb) = (&screens[a].frame, &screens[b].frame);
+        fa.x.total_cmp(&fb.x).then(fa.y.total_cmp(&fb.y))
+    });
+    let mut seen: Vec<(String, usize)> = Vec::new();
+    for i in order {
+        let uuid = screens[i].uuid.clone();
+        match seen.iter_mut().find(|(u, _)| *u == uuid) {
+            Some((_, n)) => {
+                *n += 1;
+                let renamed = format!("{uuid}#{n}");
+                tracing::warn!(
+                    name = %screens[i].name,
+                    "display shares its uuid {uuid} with another; known as {renamed}"
+                );
+                screens[i].uuid = renamed;
+            }
+            None => seen.push((uuid, 1)),
+        }
+    }
+    screens
+}
+
 /// Everything the reactor needs from the OS. All calls happen on the main
 /// thread. Implementations must never block for long: the event tap is
 /// disabled by macOS if the main loop stalls.
 pub trait Platform {
+    /// The connected displays. Two identical displays can share a uuid
+    /// (macOS derives it from the EDID, and some panels carry no serial);
+    /// callers go through `distinct_screens`.
     fn screens(&self) -> Vec<MonitorInfo>;
     fn running_apps(&self) -> Vec<AppInfo>;
     /// Windows of one app, in no particular order. Only windows worth

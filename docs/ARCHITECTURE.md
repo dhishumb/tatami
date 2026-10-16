@@ -291,7 +291,9 @@ everything. After a `kill -9`, the next start adopts each sliver
 layout pulls tiled strays back; a floating stray is not moved.
 
 **Identity and hotplug.** A monitor is its UUID
-(`CGDisplayCreateUUIDFromDisplayID`); `MonitorId`s live only while it
+(`CGDisplayCreateUUIDFromDisplayID`), made unique by `distinct_screens`
+when identical panels share one (`#2`, `#3`… left to right, so the
+suffix repeats on every connection); `MonitorId`s live only while it
 is connected; order is left to right by `frame.x`. `on_screens_changed`
 ignores an empty screen list (display sleep), refreshes matched
 monitors, gives new ones a workspace, moves a removed monitor's

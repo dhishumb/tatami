@@ -171,7 +171,10 @@ fn main() {
     // to restore. A hot-swap manifest is the live layout and wins.
     let saved = match (&manifest_adopted, saved) {
         (false, saved) => {
-            let present: Vec<String> = platform.screens().into_iter().map(|s| s.uuid).collect();
+            let present: Vec<String> = tatami_core::distinct_screens(platform.screens())
+                .into_iter()
+                .map(|s| s.uuid)
+                .collect();
             let here = tatami_state::desk_id_of(&present);
             let stale = saved.as_ref().is_none_or(|s| s.desk_id() != here);
             match tatami_state::desk_path(&here).filter(|p| stale && p.exists()) {

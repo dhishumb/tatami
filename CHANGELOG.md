@@ -153,6 +153,15 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
 
 ### Fixed
 
+- **Two identical monitors are two monitors.** macOS derives a display's
+  uuid from its EDID, and identical panels without a serial share one.
+  Matched by uuid, the pair was a single monitor to the daemon: the one
+  listed last won the frame, so `alt+2` then `alt+1` on the left one laid
+  its windows out on the right. A shared uuid now gets `#2`, `#3`…
+  appended left to right, the same way on every connection, so saved
+  desks still match. Every screen change also logs the monitors it sees
+  (`screens: 1 <name> <geometry> <uuid>; …`), the one record of a desk
+  elsewhere when a report comes in.
 - **Focusing a window from the overview no longer flips workspaces on
   other monitors.** Raising a window activates its app, and macOS
   reports the app's previous key window as focused first. When that

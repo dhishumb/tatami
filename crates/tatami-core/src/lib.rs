@@ -18,5 +18,6 @@ pub use ids::{MonitorId, NodeId, WindowId, WorkspaceId};
 pub use platform::{
     AppInfo, EventSink, KeyDisposition, KeySink, MenuItem, Mods, MonitorInfo, OverlayContent,
     OverlayRow, Platform, PlatformError, PlatformEvent, RawKeyEvent, SetOrder, WindowInfo,
+    distinct_screens,
 };
 pub use reactor::{Outcome, Reactor};

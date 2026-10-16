@@ -2661,3 +2661,35 @@ fn overview_arrows_and_enter_work_without_a_search() {
     assert!(!t.r.overview);
     assert_eq!(t.r.focused, Some(t.r.by_handle[&h[2]]));
 }
+
+#[test]
+fn two_displays_sharing_a_uuid_are_two_monitors() {
+    // macOS gives identical panels without a serial the same display
+    // uuid. Taken at face value the pair is one monitor to the reactor:
+    // one window per pair stays, and `alt+1` after `alt+2` lays the
+    // left monitor's windows out on the right one.
+    let twin = |x: f64| MonitorInfo {
+        uuid: "same".into(),
+        name: format!("Twin {x}"),
+        frame: Rect::new(x, 0.0, W, H),
+        visible: Rect::new(x, 0.0, W, H),
+        is_main: x == 0.0,
+    };
+    let (f, h) = fake_with(
+        vec![twin(0.0), twin(W)],
+        &[win("com.a", "a", 0.0), win("com.b", "b", W)],
+    );
+    let mut t = start(f, cfg(), None);
+    assert_eq!(t.r.order.len(), 2, "both twins are monitors");
+    let uuids: Vec<String> = t.r.order.iter().map(|&m| t.r.mon_uuid(m)).collect();
+    assert_eq!(uuids, ["same", "same#2"], "left to right, suffixed");
+    assert_eq!(t.frame(h[0]), r(0.0, 0.0, W, H), "a fills the left twin");
+    assert_eq!(t.frame(h[1]), r(W, 0.0, W, H), "b fills the right twin");
+    // The same pair again is the same desk: nothing folds or moves.
+    let desk = t.r.desk_id();
+    t.fake().set_screens(vec![twin(0.0), twin(W)]);
+    t.settle();
+    assert_eq!(t.r.desk_id(), desk, "the desk id is stable");
+    assert_eq!(t.r.order.len(), 2);
+    assert_eq!(t.frame(h[1]), r(W, 0.0, W, H), "b stays on the right twin");
+}

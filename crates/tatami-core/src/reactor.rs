@@ -32,7 +32,7 @@ use crate::layout::{self, Gaps, Insets, Placement};
 use crate::parking::{self, Corner};
 use crate::platform::{
     AppInfo, KeyDisposition, MenuItem, Mods, MonitorInfo, OverlayContent, OverlayRow, Platform,
-    PlatformEvent, RawKeyEvent, SetOrder, WindowInfo,
+    PlatformEvent, RawKeyEvent, SetOrder, WindowInfo, distinct_screens,
 };
 use crate::tree::Tree;
 use crate::window::{Window, WindowKind};
@@ -1839,7 +1839,7 @@ impl<P: Platform> Reactor<P> {
     /// Read `screens()`, match by uuid, add new monitors, drop vanished ones
     /// (their workspaces move to a remaining monitor, merging on clashes).
     fn sync_screens(&mut self) {
-        let screens = self.p.screens();
+        let screens = distinct_screens(self.p.screens());
         if screens.is_empty() {
             // Display sleep or a reconfiguration in flight; keep what we have.
             return;
@@ -1910,7 +1910,10 @@ impl<P: Platform> Reactor<P> {
         // vanished monitor's workspaces are folded into the rest, so what
         // is filed is the arrangement as it was, not the fallback.
         let before = self.desk_id();
-        let now_present: Vec<String> = self.p.screens().into_iter().map(|s| s.uuid).collect();
+        let now_present: Vec<String> = distinct_screens(self.p.screens())
+            .into_iter()
+            .map(|s| s.uuid)
+            .collect();
         let changing = !now_present.is_empty() && tatami_state::desk_id_of(&now_present) != before;
         let leaving = changing.then(|| Box::new(self.snapshot()));
         self.sync_screens();
@@ -1923,6 +1926,28 @@ impl<P: Platform> Reactor<P> {
             self.focused_monitor = self.ws_monitor(self.wins[id].ws);
         }
         self.relayout_all();
+        // Rare, and the one record of what a desk looked like when a
+        // report comes in from another set of monitors.
+        let listing: Vec<String> = self
+            .order
+            .iter()
+            .enumerate()
+            .map(|(i, &m)| {
+                let info = &self.monitors[m].info;
+                let f = &info.frame;
+                format!(
+                    "{} {} {}x{}{:+}{:+} {}",
+                    i + 1,
+                    info.name,
+                    f.w,
+                    f.h,
+                    f.x,
+                    f.y,
+                    info.uuid
+                )
+            })
+            .collect();
+        tracing::info!("screens: {}", listing.join("; "));
         let monitors = self.order.iter().map(|&m| self.mon_uuid(m)).collect();
         self.emit(IpcEvent::MonitorsChanged { monitors });
         self.gc();

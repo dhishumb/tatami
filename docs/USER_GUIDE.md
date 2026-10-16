@@ -146,7 +146,7 @@ until `Esc` or `Enter`; the others leave after one.
 | `alt+shift+1` … `9` | move the tile to workspace N and follow it |
 | `alt+tab` | the previous workspace |
 | `alt+/` | pin the key sheet |
-| `alt+o` | the desk on the main monitor as an outline: `↑`/`↓` move, `→` expands a monitor, `←` collapses it, `Enter` or a letter focuses a window, `/` searches; `Esc` or `alt+o` closes |
+| `alt+o` | the desk on the main monitor as an outline: `↑`/`↓` move (resting on a window shows it), `→` expands a monitor or opens a window's actions (close, move to a workspace), `←` collapses or goes back, `Enter` or a letter focuses a window, `/` searches; `Esc` or `alt+o` closes |
 | `alt+w` + | **workspaces**: `h`/`l` previous/next, `n`/`p` next/previous monitor, `m` move this workspace to the next monitor, `1-9` |
 | `alt+m` + (sticky) | **move**: `hjkl` move, `HJKL` move onto the monitor in that direction, `n` swap with the next tile, `1-9` move to workspace N |
 | `alt+r` + (sticky) | **resize**: `h`/`l` width, `j`/`k` height, `-`/`+` smart (along the container's axis), `=` balance |
@@ -294,12 +294,23 @@ workspaces (visible one starred) and one line per window with a letter
 (`~` marks a floating one).
 
 - `↑`/`↓` move the highlight over headers and windows; it starts on the
-  window you're in. The monitor the highlight is on is outlined on the
-  desk itself, the way Displays settings marks the display you pick, so
-  you can tell which screen a header or window means without counting.
+  window you're in. What the highlight is on is outlined on the desk
+  itself, the way Displays settings marks the display you pick: a header
+  outlines its monitor, a window is outlined where it stands. Rest on a
+  window whose workspace is hidden and, after a moment, its monitor
+  switches to that workspace so you can see it (a peek: nothing is
+  focused, and closing the overview without picking it puts the monitor
+  back on what it was showing).
 - `→` expands the highlighted monitor, `←` collapses it (from one of its
   windows too, landing on the header); `Enter` on a header toggles it.
   `1`…`9` expand monitor N and jump to it.
+- `→` on a window opens what can be done to it: `⌫` closes it; below
+  `move to`, one lettered line per workspace on every monitor (its own
+  left out) plus a `new workspace` line where a name is still free, and
+  the letter or `Enter` moves the window there without following it.
+  The destination's monitor is outlined as you move over the lines.
+  `←` or `Esc` go back to the list, which stays open with the highlight
+  on the window where it now is.
 - `Enter` on a window focuses it; **or press a window's letter**. Either
   way the window is focused wherever it is: its workspace is switched to
   and the pointer moves to its monitor.

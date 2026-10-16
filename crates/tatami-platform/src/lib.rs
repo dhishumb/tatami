@@ -386,8 +386,8 @@ impl Platform for MacPlatform {
         self.overlay.show(self.mtm, content, monitor);
     }
 
-    fn mark_monitor(&mut self, monitor: Option<&MonitorInfo>) {
-        self.mark.show(self.mtm, monitor);
+    fn mark_frame(&mut self, frame: Option<Rect>) {
+        self.mark.show(self.mtm, frame);
     }
 
     fn set_status(&mut self, text: &str) {

@@ -261,10 +261,10 @@ pub trait Platform {
     fn launch(&self, bundle_id: &str) -> Result<(), PlatformError>;
     /// `None` hides the which-key sheet.
     fn show_overlay(&mut self, content: Option<&OverlayContent>, monitor: &MonitorInfo);
-    /// Outline one monitor on screen, the way Displays settings marks the
-    /// display you picked: the overview's highlighted monitor. `None`
-    /// takes the outline down.
-    fn mark_monitor(&mut self, monitor: Option<&MonitorInfo>);
+    /// Outline one rectangle on screen (AX coordinates), the way Displays
+    /// settings marks the display you picked: the overview's highlighted
+    /// monitor or window. `None` takes the outline down.
+    fn mark_frame(&mut self, frame: Option<Rect>);
     /// Menu bar status item text (shown next to the icon).
     fn set_status(&mut self, text: &str);
     /// Replace the status item's menu. Picking an item emits

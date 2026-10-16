@@ -12,6 +12,21 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
 
 ### Added
 
+- **The overview shows what you are pointing at.** Arrowing through the
+  list told you a window's name and monitor and nothing else, so picking
+  between two Chrome windows was a guess. Now a window row is outlined on
+  the desk where the window stands, and resting on a window whose
+  workspace is hidden switches its monitor to that workspace after a
+  moment: a peek, with nothing focused. Close the overview without
+  picking it and the monitor goes back to what it showed. A header
+  still outlines its monitor.
+- **Close or move a window from the overview.** `→` on a window opens
+  its actions: `⌫` closes it; `move to` lists one lettered line per
+  workspace on every monitor, plus a `new workspace` where a name is
+  free, and the letter or `Enter` moves the window there without
+  following it. The list stays open, highlight on the window in its new
+  place, so a desk can be sorted out from one sheet instead of a focus,
+  a chord and another `alt+o` per window.
 - **Named profiles, from the menu.** The menu bar item has a Profiles
   section: the Default entries are the desks (one layout per set of
   monitors, kept by itself, the present one checked), the named ones

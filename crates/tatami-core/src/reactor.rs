@@ -81,6 +81,10 @@ const APP_SCAN_EVERY: Duration = Duration::from_secs(3);
 /// A hand-dragged tile is acted on this long after its last move event.
 const DRAG_SETTLE: Duration = Duration::from_millis(200);
 const FLASH_FOR: Duration = Duration::from_millis(2500);
+/// How long the overview's highlight rests on a window before its hidden
+/// workspace is shown: long enough to arrow past, short enough to feel
+/// like a glance.
+const PEEK_AFTER: Duration = Duration::from_millis(150);
 /// After our raise, a focus event for a parked sibling window within this
 /// long is the app activating, not the user reaching for it.
 const RAISE_ECHO_FOR: Duration = Duration::from_secs(1);
@@ -207,6 +211,18 @@ pub struct Reactor<P: Platform> {
     overview_sel: usize,
     /// Monitors the overview shows expanded (workspaces and windows).
     overview_open: Vec<MonitorId>,
+    /// The window whose action menu (close, move to…) the overview shows.
+    overview_act: Option<WindowId>,
+    /// Monitors switched to show the highlighted window, with the
+    /// workspace each was showing before; put back when the overview
+    /// closes without a pick there.
+    overview_peek: Vec<(MonitorId, WorkspaceId)>,
+    /// The focused monitor before the first peek.
+    overview_peek_focus: Option<MonitorId>,
+    /// When the highlight has rested long enough to peek.
+    overview_peek_at: Option<Instant>,
+    /// The picked window's monitor: its peek is kept, the rest undone.
+    overview_keep: Option<MonitorId>,
     /// A line of text being asked for on the sheet (a profile's name).
     prompt: Option<Prompt>,
     /// A tiled window the user is moving by hand, and when to act on it.
@@ -350,6 +366,18 @@ pub(crate) enum OverviewItem {
         mode: Option<usize>,
         chord: KeyChord,
     },
+    /// A line of the action menu `→` opens on a window.
+    Act(WindowAct),
+}
+
+/// What the overview can do to a window besides focusing it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum WindowAct {
+    Close,
+    /// Into an existing workspace.
+    MoveTo(WorkspaceId),
+    /// Into the lowest free workspace of this monitor, created then.
+    MoveNew(MonitorId),
 }
 
 /// Letters for the overview's windows: `a`…`z` then `A`…`Z`.
@@ -452,6 +480,11 @@ impl<P: Platform> Reactor<P> {
             overview_query: None,
             overview_sel: 0,
             overview_open: Vec::new(),
+            overview_act: None,
+            overview_peek: Vec::new(),
+            overview_peek_focus: None,
+            overview_peek_at: None,
+            overview_keep: None,
             prompt: None,
             start_at_login: false,
             desks: Vec::new(),
@@ -779,6 +812,10 @@ impl<P: Platform> Reactor<P> {
             self.rescan_new_apps();
         }
         self.settle_drag();
+        if self.overview_peek_at.is_some_and(|t| t <= now) {
+            self.overview_peek_at = None;
+            self.overview_peek();
+        }
         if self.flash.as_ref().is_some_and(|(_, until)| *until <= now) {
             self.flash = None;
             self.status_dirty = true;
@@ -802,10 +839,19 @@ impl<P: Platform> Reactor<P> {
             .and_then(|s| s.next_deadline());
         let fl = self.flash.as_ref().map(|(_, t)| *t);
         let dr = self.drag.map(|(_, t)| t);
-        [self.keys.due(), tx, rs, fl, dr, Some(self.next_app_scan)]
-            .into_iter()
-            .flatten()
-            .min()
+        let pk = self.overview_peek_at;
+        [
+            self.keys.due(),
+            tx,
+            rs,
+            fl,
+            dr,
+            pk,
+            Some(self.next_app_scan),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// Rebuild keymap/KeyState, gaps, relayout all.
@@ -1067,20 +1113,23 @@ impl<P: Platform> Reactor<P> {
             let ch = r.keys.enter_mode(None, now);
             r.set_overlay(ch);
         };
-        let redraw = |r: &mut Self| r.set_overlay(OverlayChange::Show(Level::Top));
-        // The lines changed: rebuild the items and keep the highlight on
-        // `keep` where it is still listed, else on the first line.
-        let rebuild = |r: &mut Self, keep: Option<OverviewItem>| {
-            r.overview_items = r.overview_rows().1;
-            r.overview_sel = keep
-                .and_then(|k| r.overview_items.iter().position(|&i| i == k))
-                .unwrap_or(0);
-            redraw(r);
-        };
+        let redraw = |r: &mut Self| r.overview_redraw();
+        let rebuild = |r: &mut Self, keep: Option<OverviewItem>| r.overview_rebuild(keep);
+        if let Some(w) = self.overview_act {
+            return self.overview_act_key(w, key, mods, now);
+        }
         let current = self.overview_items.get(self.overview_sel).copied();
         match (self.overview_query.is_some(), key) {
             (_, Some(KeyName::Escape)) => {
                 close(self);
+                KeyDisposition::Swallow
+            }
+            // On a window, → opens what can be done to it.
+            (_, Some(KeyName::Right)) if matches!(current, Some(OverviewItem::Window(_))) => {
+                if let Some(OverviewItem::Window(w)) = current {
+                    self.overview_act = Some(w);
+                    rebuild(self, Some(OverviewItem::Act(WindowAct::Close)));
+                }
                 KeyDisposition::Swallow
             }
             (false, Some(KeyName::Right)) => {
@@ -1096,7 +1145,7 @@ impl<P: Platform> Reactor<P> {
                 let m = match current {
                     Some(OverviewItem::Monitor(m)) => Some(m),
                     Some(OverviewItem::Window(w)) => Some(self.ws_monitor(self.wins[w].ws)),
-                    Some(OverviewItem::Key { .. }) | None => None,
+                    Some(OverviewItem::Key { .. }) | Some(OverviewItem::Act(_)) | None => None,
                 };
                 if let Some(m) = m {
                     self.overview_open.retain(|&o| o != m);
@@ -1130,6 +1179,9 @@ impl<P: Platform> Reactor<P> {
                         })
                         .nth(i)
                 });
+                if let Some(id) = picked {
+                    self.overview_keep = Some(self.ws_monitor(self.wins[id].ws));
+                }
                 close(self);
                 match picked {
                     Some(id) => {
@@ -1143,6 +1195,7 @@ impl<P: Platform> Reactor<P> {
             (_, Some(KeyName::Enter)) => {
                 match current {
                     Some(OverviewItem::Window(w)) => {
+                        self.overview_keep = Some(self.ws_monitor(self.wins[w].ws));
                         close(self);
                         self.overview_pick = Some(w);
                     }
@@ -1162,7 +1215,7 @@ impl<P: Platform> Reactor<P> {
                         close(self);
                         self.key_queue.extend(actions);
                     }
-                    None => close(self),
+                    Some(OverviewItem::Act(_)) | None => close(self),
                 }
                 KeyDisposition::Swallow
             }
@@ -1217,6 +1270,266 @@ impl<P: Platform> Reactor<P> {
                 KeyDisposition::Pass
             }
         }
+    }
+
+    fn overview_redraw(&mut self) {
+        self.set_overlay(OverlayChange::Show(Level::Top));
+        self.overview_peek_at = Some(self.now + PEEK_AFTER);
+    }
+
+    /// The lines changed: rebuild the items and keep the highlight on
+    /// `keep` where it is still listed, else on the first line.
+    fn overview_rebuild(&mut self, keep: Option<OverviewItem>) {
+        self.overview_items = self.overview_rows().1;
+        self.overview_sel = keep
+            .and_then(|k| self.overview_items.iter().position(|&i| i == k))
+            .unwrap_or(0);
+        self.overview_redraw();
+    }
+
+    /// Keys on a window's action menu: `⌫` closes the window, a letter or
+    /// Enter moves it to that line's workspace, `←`/Esc go back to the
+    /// list. Letters pick here as on the list, so a search's text is not
+    /// touched.
+    fn overview_act_key(
+        &mut self,
+        w: WindowId,
+        key: Option<KeyName>,
+        mods: Mods,
+        _now: Instant,
+    ) -> KeyDisposition {
+        let back = |r: &mut Self| {
+            r.overview_act = None;
+            r.overview_rebuild(Some(OverviewItem::Window(w)));
+        };
+        if !self.wins.contains_key(w) {
+            back(self);
+            return KeyDisposition::Swallow;
+        }
+        let current = self.overview_items.get(self.overview_sel).copied();
+        match key {
+            Some(KeyName::Escape) | Some(KeyName::Left) => back(self),
+            Some(KeyName::Backspace) => self.overview_run_act(w, WindowAct::Close),
+            Some(KeyName::Enter) => {
+                if let Some(OverviewItem::Act(a)) = current {
+                    self.overview_run_act(w, a);
+                }
+            }
+            Some(KeyName::Down) | Some(KeyName::Tab) if !mods.shift => {
+                if !self.overview_items.is_empty() {
+                    self.overview_sel = (self.overview_sel + 1) % self.overview_items.len();
+                }
+                self.overview_redraw();
+            }
+            Some(KeyName::Up) | Some(KeyName::Tab) => {
+                let n = self.overview_items.len();
+                if n > 0 {
+                    self.overview_sel = (self.overview_sel + n - 1) % n;
+                }
+                self.overview_redraw();
+            }
+            Some(KeyName::Char(c)) => {
+                let c = if mods.shift {
+                    c.to_ascii_uppercase()
+                } else {
+                    c
+                };
+                let picked = overview_index(c).and_then(|i| {
+                    self.overview_items
+                        .iter()
+                        .filter_map(|it| match it {
+                            OverviewItem::Act(
+                                a @ (WindowAct::MoveTo(_) | WindowAct::MoveNew(_)),
+                            ) => Some(*a),
+                            _ => None,
+                        })
+                        .nth(i)
+                });
+                if let Some(a) = picked {
+                    self.overview_run_act(w, a);
+                }
+            }
+            _ => {}
+        }
+        KeyDisposition::Swallow
+    }
+
+    /// Do `act` to `w` and return to the list, the highlight on the
+    /// window where it now stands (a closed one is gone with the next
+    /// event; the highlight falls back to the focused line).
+    fn overview_run_act(&mut self, w: WindowId, act: WindowAct) {
+        let handle = self.wins[w].w.handle;
+        match act {
+            WindowAct::Close => {
+                if let Err(e) = self.p.close(handle) {
+                    tracing::info!(window = ?handle, "overview: close failed: {e}");
+                }
+            }
+            WindowAct::MoveTo(ws) => {
+                if let Err(e) = self.move_node(w, ws, false) {
+                    tracing::info!("overview: move failed: {e}");
+                }
+            }
+            WindowAct::MoveNew(m) => {
+                if let Some(ws) = self.own_workspace(m)
+                    && let Err(e) = self.move_node(w, ws, false)
+                {
+                    tracing::info!("overview: move failed: {e}");
+                }
+            }
+        }
+        self.overview_act = None;
+        // The list shows where it went.
+        if let Some(m) = self.wins.get(w).map(|m| self.ws_monitor(m.ws))
+            && !self.overview_open.contains(&m)
+        {
+            self.overview_open.push(m);
+        }
+        self.overview_rebuild(Some(OverviewItem::Window(w)));
+    }
+
+    /// The highlight has rested on a window: show its workspace on its
+    /// monitor so the list and the room agree, remembering what that
+    /// monitor showed before. Nothing is focused or raised.
+    fn overview_peek(&mut self) {
+        if !self.overview || self.prompt.is_some() {
+            return;
+        }
+        let Some(OverviewItem::Window(w)) = self.overview_items.get(self.overview_sel).copied()
+        else {
+            return;
+        };
+        let Some(ws) = self.wins.get(w).map(|m| m.ws) else {
+            return;
+        };
+        if self.model.is_visible(ws) {
+            return;
+        }
+        let m = self.ws_monitor(ws);
+        if self.overview_peek_focus.is_none() {
+            self.overview_peek_focus = Some(self.focused_monitor);
+        }
+        if !self.overview_peek.iter().any(|&(pm, _)| pm == m)
+            && let Some(was) = self.visible_ws(m)
+        {
+            self.overview_peek.push((m, was));
+        }
+        let sw = self.model.switch(m, ws);
+        self.apply_switch(sw, false);
+        self.set_overlay(OverlayChange::Show(Level::Top));
+    }
+
+    /// Put every peeked monitor back on the workspace it was showing,
+    /// except `keep` (the picked window's monitor), and the focused
+    /// monitor where it was.
+    fn overview_unpeek(&mut self, keep: Option<MonitorId>) {
+        for (m, was) in std::mem::take(&mut self.overview_peek) {
+            if Some(m) == keep || !self.workspaces.contains_key(was) || self.model.is_visible(was) {
+                continue;
+            }
+            let sw = self.model.switch(m, was);
+            self.apply_switch(sw, false);
+        }
+        if let Some(f) = self.overview_peek_focus.take()
+            && keep.is_none()
+            && self.monitors.contains_key(f)
+        {
+            self.focused_monitor = f;
+            self.status_dirty = true;
+        }
+    }
+
+    /// The action menu for `w`: close, then one line per workspace it
+    /// could move to, monitor by monitor, plus a fresh workspace where a
+    /// name is still free. Its own workspace is left out.
+    fn overview_act_rows(&self, w: WindowId) -> (Vec<OverlayRow>, Vec<OverviewItem>) {
+        let m = &self.wins[w];
+        let own = m.ws;
+        let mut rows = Vec::new();
+        let mut items = Vec::new();
+        let line = |rows: &mut Vec<OverlayRow>, key: &str, desc: String, prefix: bool| {
+            rows.push(OverlayRow {
+                key: key.into(),
+                desc,
+                prefix,
+                command: Vec::new(),
+            });
+        };
+        let float = if m.w.kind == WindowKind::Floating {
+            "~ "
+        } else {
+            ""
+        };
+        let name = if m.w.title.is_empty() || m.w.title == m.w.app_name {
+            m.w.app_name.clone()
+        } else {
+            format!("{} — {}", m.w.app_name, m.w.title)
+        };
+        line(&mut rows, "", format!("  {float}{name}"), true);
+        let sel = |i: usize| if i == self.overview_sel { "▶ " } else { "  " };
+        line(&mut rows, "⌫", format!("{}close", sel(items.len())), false);
+        items.push(OverviewItem::Act(WindowAct::Close));
+        line(&mut rows, "", String::new(), true);
+        line(&mut rows, "", "  move to".into(), true);
+        let mut letters = 0usize;
+        for (i, &mid) in self.monitors_left_to_right().iter().enumerate() {
+            let Some(mon) = self.monitors.get(mid) else {
+                continue;
+            };
+            let visible = self.model.visible_on(mid);
+            let mut names = Vec::new();
+            for ws in self.model.workspaces_on(mid) {
+                let Some(wname) = self.model.name_of(ws) else {
+                    continue;
+                };
+                names.push(wname.to_string());
+                if ws == own {
+                    continue;
+                }
+                let key = overview_letter(letters)
+                    .map(String::from)
+                    .unwrap_or_default();
+                letters += 1;
+                let star = if visible == Some(ws) { " *" } else { "" };
+                line(
+                    &mut rows,
+                    &key,
+                    format!(
+                        "{}{}  {}  ·  workspace {wname}{star}",
+                        sel(items.len()),
+                        i + 1,
+                        mon.info.name
+                    ),
+                    false,
+                );
+                items.push(OverviewItem::Act(WindowAct::MoveTo(ws)));
+            }
+            if let Some(fresh) = self
+                .cfg
+                .workspaces
+                .names
+                .iter()
+                .find(|n| !names.iter().any(|x| x == *n))
+            {
+                let key = overview_letter(letters)
+                    .map(String::from)
+                    .unwrap_or_default();
+                letters += 1;
+                line(
+                    &mut rows,
+                    &key,
+                    format!(
+                        "{}{}  {}  ·  new workspace {fresh}",
+                        sel(items.len()),
+                        i + 1,
+                        mon.info.name
+                    ),
+                    false,
+                );
+                items.push(OverviewItem::Act(WindowAct::MoveNew(mid)));
+            }
+        }
+        (rows, items)
     }
 
     /// What a key row's binding does, as a list to queue.
@@ -1289,7 +1602,7 @@ impl<P: Platform> Reactor<P> {
         });
         let ch = self.keys.pin();
         self.set_overlay(ch);
-        self.set_overlay(OverlayChange::Show(Level::Top));
+        self.overview_redraw();
     }
 
     /// A key while a prompt is up: letters, digits, `-`, `_` and space
@@ -1374,6 +1687,11 @@ impl<P: Platform> Reactor<P> {
     /// matches. Returns the rows and the items the highlight can rest on,
     /// in order.
     fn overview_rows(&self) -> (Vec<OverlayRow>, Vec<OverviewItem>) {
+        if let Some(w) = self.overview_act
+            && self.wins.contains_key(w)
+        {
+            return self.overview_act_rows(w);
+        }
         let mons = self.monitors_left_to_right();
         let query = self.overview_query.as_deref().map(str::to_lowercase);
         let searching = query.is_some();
@@ -1607,9 +1925,13 @@ impl<P: Platform> Reactor<P> {
 
     fn overview_content(&self) -> OverlayContent {
         let (rows, items) = self.overview_rows();
+        let acting = self.overview_act.is_some_and(|w| self.wins.contains_key(w));
         let title = match &self.overview_query {
+            _ if acting => {
+                "window  ·  ⌫ close  ·  letter or Enter: move there  ·  ← back".to_string()
+            }
             None => {
-                "desk  ·  ↑↓ move  → open  ← close  ·  Enter or letter: focus  ·  / search windows and keys"
+                "desk  ·  ↑↓ move  → open / act  ← close  ·  Enter or letter: focus  ·  / search windows and keys"
                     .to_string()
             }
             Some(q) => format!(
@@ -1618,7 +1940,9 @@ impl<P: Platform> Reactor<P> {
                 if items.len() == 1 { "" } else { "es" }
             ),
         };
-        let exit_hint = if self.overview_query.is_some() {
+        let exit_hint = if acting {
+            "Esc  back"
+        } else if self.overview_query.is_some() {
             "↑↓ Enter  ·  Esc  close"
         } else {
             "Esc  close"
@@ -1677,7 +2001,14 @@ impl<P: Platform> Reactor<P> {
         let content = match ch {
             OverlayChange::Keep => return,
             OverlayChange::Hide => {
+                if self.overview {
+                    let keep = self.overview_keep.take();
+                    self.overview_unpeek(keep);
+                }
                 self.overview = false;
+                self.overview_act = None;
+                self.overview_peek_at = None;
+                self.overview_keep = None;
                 self.prompt = None;
                 None
             }
@@ -1708,26 +2039,37 @@ impl<P: Platform> Reactor<P> {
         };
         self.p.show_overlay(content.as_ref(), mon);
         // The overview's highlight is also shown on the desk itself: an
-        // outline around the monitor it is on, so the list and the room
-        // agree.
+        // outline around the monitor or window it is on, so the list and
+        // the room agree.
         let mark = if content.is_some() && self.overview && self.prompt.is_none() {
             self.overview_marked()
-                .and_then(|m| self.monitors.get(m))
-                .map(|m| m.info.clone())
         } else {
             None
         };
-        self.p.mark_monitor(mark.as_ref());
+        self.p.mark_frame(mark);
     }
 
-    /// The monitor the overview's highlight is on: the header itself, or
-    /// the highlighted window's. A key row is on none.
-    fn overview_marked(&self) -> Option<MonitorId> {
+    /// What the overview's highlight is on: a header's monitor, a window
+    /// where it shows (its monitor while its workspace is still hidden),
+    /// an action's destination. A key row is on nothing.
+    fn overview_marked(&self) -> Option<Rect> {
         let (_, items) = self.overview_rows();
+        let mon = |m: MonitorId| self.monitors.get(m).map(|m| m.info.frame);
+        let win = |w: WindowId| {
+            let m = self.wins.get(w)?;
+            if self.model.is_visible(m.ws) && !m.w.minimized {
+                Some(m.w.expected.unwrap_or(m.w.frame))
+            } else {
+                mon(self.ws_monitor(m.ws))
+            }
+        };
         match items.get(self.overview_sel)? {
-            OverviewItem::Monitor(m) => Some(*m),
-            OverviewItem::Window(w) => self.wins.get(*w).map(|w| self.ws_monitor(w.ws)),
+            OverviewItem::Monitor(m) => mon(*m),
+            OverviewItem::Window(w) => win(*w),
             OverviewItem::Key { .. } => None,
+            OverviewItem::Act(WindowAct::Close) => self.overview_act.and_then(win),
+            OverviewItem::Act(WindowAct::MoveTo(ws)) => mon(self.ws_monitor(*ws)),
+            OverviewItem::Act(WindowAct::MoveNew(m)) => mon(*m),
         }
     }
 

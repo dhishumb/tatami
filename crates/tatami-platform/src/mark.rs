@@ -1,6 +1,6 @@
-//! The monitor outline: a border around one monitor while the overview's
-//! highlight is on it, the way Displays settings marks the display you
-//! pick. A transparent panel the size of the monitor whose content is an
+//! The outline: a border around the monitor or window the overview's
+//! highlight is on, the way Displays settings marks the display you
+//! pick. A transparent panel the size of the frame whose content is an
 //! `NSBox` border, above every window and under the sheet, never in the
 //! way of the mouse.
 
@@ -12,7 +12,7 @@ use objc2_app_kit::{
 };
 use objc2_core_foundation::{CGPoint, CGRect, CGSize};
 use objc2_core_graphics::{CGDisplayBounds, CGMainDisplayID};
-use tatami_core::MonitorInfo;
+use tatami_protocol::Rect;
 
 const WIDTH: f64 = 6.0;
 const RADIUS: f64 = 12.0;
@@ -21,8 +21,8 @@ const COLOR: (f64, f64, f64) = (0.45, 0.72, 1.0);
 
 pub(crate) struct Mark {
     panel: Option<Retained<NSPanel>>,
-    /// Uuid of the monitor outlined now.
-    shown: Option<String>,
+    /// The frame outlined now.
+    shown: Option<Rect>,
 }
 
 impl Mark {
@@ -33,8 +33,8 @@ impl Mark {
         }
     }
 
-    pub(crate) fn show(&mut self, mtm: MainThreadMarker, monitor: Option<&MonitorInfo>) {
-        let Some(m) = monitor else {
+    pub(crate) fn show(&mut self, mtm: MainThreadMarker, frame: Option<Rect>) {
+        let Some(f) = frame else {
             if self.shown.take().is_some()
                 && let Some(p) = &self.panel
             {
@@ -42,11 +42,10 @@ impl Mark {
             }
             return;
         };
-        if self.shown.as_deref() == Some(m.uuid.as_str()) {
+        if self.shown.is_some_and(|s| s.approx_eq(&f, 0.5)) {
             return;
         }
         let panel = self.panel.get_or_insert_with(|| make_panel(mtm));
-        let f = m.frame;
         // AX frames are top-left based; AppKit's origin is the primary display's bottom-left.
         let main_h = CGDisplayBounds(CGMainDisplayID()).size.height;
         let rect = CGRect::new(
@@ -55,7 +54,7 @@ impl Mark {
         );
         panel.setFrame_display(rect, true);
         panel.orderFrontRegardless();
-        self.shown = Some(m.uuid.clone());
+        self.shown = Some(f);
     }
 }
 

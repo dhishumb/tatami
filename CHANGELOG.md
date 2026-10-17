@@ -12,6 +12,13 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
 
 ### Added
 
+- **A quieter overview.** The title line listed every key and the list
+  repeated what it could show: a window count beside a monitor whose
+  windows were listed under it, a `workspace 1` line under a monitor with
+  nothing else. The title is `desk`, counts appear on collapsed monitors
+  only, a workspace line only where a monitor has several, titles are
+  cut shorter, and the keys are a list `?` adds under the outline and
+  hides again.
 - **The overview shows what you are pointing at.** Arrowing through the
   list told you a window's name and monitor and nothing else, so picking
   between two Chrome windows was a guess. Now a window row is outlined on

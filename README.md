@@ -66,7 +66,7 @@ Quit Rectangle, yabai or AeroSpace first; two managers fight.
 | `alt+shift+e` | the whole container: horizontal ↔ vertical |
 | `alt+a` | accordion: horizontal ↔ vertical |
 | `alt+/` | pin the which-key sheet |
-| `alt+o` | overview on the main monitor, an outline of monitors: `↑↓` move (resting on a window shows it), `→` expands a monitor, `←` collapses; `Enter` or a letter focuses a window; `q` closes the highlighted window, `⇧←→` sends it to the monitor beside, `⇧1-9` to that workspace; `/` searches windows and keys (`Enter` on a key runs it) |
+| `alt+o` | overview on the main monitor, an outline of monitors: `↑↓` move (resting on a window shows it), `→` expands a monitor, `←` collapses; `Enter` or a letter focuses a window; `q` closes the highlighted window, `⇧←→` sends it to the monitor beside, `⇧1-9` to that workspace; `/` searches windows and keys (`Enter` on a key runs it), `?` lists the keys |
 | `alt+w` | **workspaces**: `h`/`l` prev/next, `n`/`p` next/prev monitor, `m` move workspace to next monitor, `1-9` |
 | `alt+m` | **move** (sticky): `hjkl` move, `HJKL` move to monitor, `n` swap next, `1-9` move to workspace |
 | `alt+r` | **resize** (sticky): `h`/`l` width, `j`/`k` height, `-`/`+` smart, `=` balance |

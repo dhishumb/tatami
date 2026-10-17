@@ -287,11 +287,13 @@ always something to edit.
 `alt+o` opens the desk on the main display (`overview_monitor` under
 `[general]` changes that: `pointer`, `focused`, a monitor number counted
 left to right, or part of a monitor's name), keyboard first. It is an
-outline: one header per monitor, left to right, with its window count
-(the monitor you're on marked `◆`); the monitor you're on opens expanded
-(`▾`), the others collapsed (`▸`). Under an expanded monitor, its
-workspaces (visible one starred) and one line per window with a letter
-(`~` marks a floating one).
+outline: one header per monitor, left to right (the monitor you're on
+marked `◆`); the monitor you're on opens expanded (`▾`), the others
+collapsed (`▸`) with their window count. Under an expanded monitor, one
+line per window with a letter (`~` marks a floating one), grouped by
+workspace (visible one starred) when it has more than one. The sheet
+is a list, not a legend: `?` adds the keys under it, and again hides
+them.
 
 - `↑`/`↓` move the highlight over headers and windows; it starts on the
   window you're in. What the highlight is on is outlined on the desk

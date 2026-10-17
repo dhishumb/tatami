@@ -224,6 +224,8 @@ pub struct Reactor<P: Platform> {
     overview_peek_at: Option<Instant>,
     /// The picked window's monitor: its peek is kept, the rest undone.
     overview_keep: Option<MonitorId>,
+    /// The key list is shown under the outline (`?`).
+    overview_help: bool,
     /// A line of text being asked for on the sheet (a profile's name).
     prompt: Option<Prompt>,
     /// A tiled window the user is moving by hand, and when to act on it.
@@ -369,6 +371,19 @@ pub(crate) enum OverviewItem {
     },
 }
 
+/// The overview's keys, listed on `?`.
+const OVERVIEW_KEYS: [(&str, &str); 9] = [
+    ("↑ ↓", "move the highlight"),
+    ("→ ←", "open or close a monitor"),
+    ("Enter, a–z", "focus the window"),
+    ("1–9", "open monitor N"),
+    ("/", "search windows and keys"),
+    ("q", "close the window"),
+    ("⇧← ⇧→", "send it to the monitor beside"),
+    ("⇧1–9", "send it to that workspace"),
+    ("Esc", "close"),
+];
+
 /// Letters for the overview's windows: `a`…`z` then `A`…`Z`, less `q`,
 /// which closes the highlighted window.
 const OVERVIEW_LETTERS: &str = "abcdefghijklmnoprstuvwxyzABCDEFGHIJKLMNOPRSTUVWXYZ";
@@ -469,6 +484,7 @@ impl<P: Platform> Reactor<P> {
             overview_peek_raised: false,
             overview_peek_at: None,
             overview_keep: None,
+            overview_help: false,
             prompt: None,
             start_at_login: false,
             desks: Vec::new(),
@@ -1174,7 +1190,13 @@ impl<P: Platform> Reactor<P> {
                 }
                 KeyDisposition::Swallow
             }
-            // Letters mode.
+            // Letters mode. `?` shows the keys; the sheet is otherwise a
+            // list, not a legend.
+            (false, Some(KeyName::Char('/'))) if mods.shift => {
+                self.overview_help = !self.overview_help;
+                redraw(self);
+                KeyDisposition::Swallow
+            }
             (false, Some(KeyName::Char('/'))) | (false, Some(KeyName::Space)) => {
                 self.overview_query = Some(String::new());
                 rebuild(self, None);
@@ -1628,9 +1650,16 @@ impl<P: Platform> Reactor<P> {
                     command: Vec::new(),
                 });
             }
+            // The count stands in for the windows a collapsed monitor
+            // does not list; an open one lists them.
+            let count = if open {
+                String::new()
+            } else {
+                format!("  ({count})")
+            };
             rows.push(OverlayRow {
                 key: if open { "▾" } else { "▸" }.into(),
-                desc: format!("{sel}{}  {}  ({count}){here}", i + 1, mon.info.name),
+                desc: format!("{sel}{}  {}{count}{here}", i + 1, mon.info.name),
                 prefix: true,
                 command: vec!["overview".into(), (i + 1).to_string()],
             });
@@ -1639,17 +1668,23 @@ impl<P: Platform> Reactor<P> {
             }
             let visible = self.model.visible_on(id);
             let mut any_on_monitor = false;
-            for ws in self.model.workspaces_on(id) {
+            let wss = self.model.workspaces_on(id);
+            // One workspace needs no line of its own.
+            let several = wss.len() > 1;
+            for ws in wss {
                 let Some(name) = self.model.name_of(ws) else {
                     continue;
                 };
                 let mark = if visible == Some(ws) { " *" } else { "" };
-                let mut ws_rows = vec![OverlayRow {
-                    key: String::new(),
-                    desc: format!("   workspace {name}{mark}"),
-                    prefix: true,
-                    command: Vec::new(),
-                }];
+                let mut ws_rows = Vec::new();
+                if several {
+                    ws_rows.push(OverlayRow {
+                        key: String::new(),
+                        desc: format!("   workspace {name}{mark}"),
+                        prefix: true,
+                        command: Vec::new(),
+                    });
+                }
                 let mut any = false;
                 for w in self.ws_windows(ws) {
                     let m = &self.wins[w];
@@ -1703,6 +1738,19 @@ impl<P: Platform> Reactor<P> {
             // Nor does a monitor with none.
             if searching && !any_on_monitor {
                 rows.truncate(header_at);
+            }
+        }
+        if self.overview_help && !searching {
+            let line = |key: &str, desc: &str| OverlayRow {
+                key: key.into(),
+                desc: desc.into(),
+                prefix: true,
+                command: Vec::new(),
+            };
+            rows.push(line("", ""));
+            rows.push(line("", "  keys"));
+            for (k, d) in OVERVIEW_KEYS {
+                rows.push(line("", &format!("   {k:<12}{d}")));
             }
         }
         // The keymap, once there is text to match: an empty search is the
@@ -1820,10 +1868,7 @@ impl<P: Platform> Reactor<P> {
     fn overview_content(&self) -> OverlayContent {
         let (rows, items) = self.overview_rows();
         let title = match &self.overview_query {
-            None => {
-                "desk  ·  ↑↓ move  → open  ← close  ·  Enter or letter: focus  ·  q close window  ⇧←→ ⇧1–9 send it  ·  / search"
-                    .to_string()
-            }
+            None => "desk".to_string(),
             Some(q) => format!(
                 "search: {q}  ({} match{})",
                 items.len(),
@@ -1832,15 +1877,17 @@ impl<P: Platform> Reactor<P> {
         };
         let exit_hint = if self.overview_query.is_some() {
             "↑↓ Enter  ·  Esc  close"
+        } else if self.overview_help {
+            "?  hide keys  ·  Esc  close"
         } else {
-            "Esc  close"
+            "?  keys  ·  Esc  close"
         };
         OverlayContent {
             title,
             exit_hint: exit_hint.into(),
             rows,
             columns: Some(1),
-            max_desc: Some(80),
+            max_desc: Some(60),
             list: true,
         }
     }

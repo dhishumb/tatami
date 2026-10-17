@@ -2106,7 +2106,7 @@ fn overview_is_an_outline_with_the_current_monitor_expanded() {
         .map(|r| format!("{}|{}\n", r.key, r.desc))
         .collect();
     assert!(
-        text.contains("▸|  1  Display m1  (1)\n") && text.contains("▾|  2  Display m2  (1) ◆"),
+        text.contains("▸|  1  Display m1  (1)\n") && text.contains("▾|  2  Display m2 ◆"),
         "{text}"
     );
     assert_eq!(
@@ -2879,4 +2879,59 @@ fn shift_on_the_overview_sends_the_highlighted_window_or_closes_it() {
     });
     t.drain();
     assert!(!t.r.overview);
+}
+
+#[test]
+fn the_overview_is_a_list_and_shows_its_keys_only_on_request() {
+    // The title is one word, a collapsed monitor carries its window
+    // count, an open one lists the windows instead, a monitor with one
+    // workspace has no workspace line, and `?` adds the keys.
+    let (mut t, h) = setup(
+        vec![mon("m1", 0.0), mon("m2", W)],
+        &[win("com.a", "a", 0.0), win("com.b", "b", W + 10.0)],
+    );
+    t.fake()
+        .set_mouse(tatami_protocol::Point { x: 100.0, y: 100.0 });
+    t.focus(h[0]);
+    t.ok("overview");
+    let c = t.r.overview_content();
+    assert_eq!(c.title, "desk");
+    assert_eq!(c.exit_hint, "?  keys  ·  Esc  close");
+    let descs =
+        |c: &crate::OverlayContent| c.rows.iter().map(|r| r.desc.clone()).collect::<Vec<_>>();
+    let d = descs(&c);
+    assert!(d.iter().any(|x| x.contains("2  Display m2  (1)")), "{d:?}");
+    assert!(
+        d.iter()
+            .any(|x| x.contains("1  Display m1") && !x.contains('(')),
+        "{d:?}"
+    );
+    assert!(!d.iter().any(|x| x.contains("workspace")), "{d:?}");
+    assert!(!d.iter().any(|x| x.contains("close the window")), "{d:?}");
+    let shifted = RawKeyEvent::Down {
+        keycode: 44,
+        mods: Mods {
+            shift: true,
+            ..Mods::default()
+        },
+        repeat: false,
+    };
+    assert_eq!(t.key(shifted), KeyDisposition::Swallow); // ?
+    let c = t.r.overview_content();
+    assert!(descs(&c).iter().any(|x| x.contains("close the window")));
+    assert_eq!(c.exit_hint, "?  hide keys  ·  Esc  close");
+    assert_eq!(t.key(shifted), KeyDisposition::Swallow);
+    assert!(
+        !descs(&t.r.overview_content())
+            .iter()
+            .any(|x| x.contains("close the window"))
+    );
+    // A second workspace on a monitor brings the workspace lines back.
+    t.ok("workspace 2");
+    t.ok("workspace 1");
+    t.ok("move-node-to-workspace 2");
+    t.ok("overview");
+    let d = descs(&t.r.overview_content());
+    assert!(d.iter().any(|x| x.contains("workspace 1 *")), "{d:?}");
+    assert!(d.iter().any(|x| x.contains("workspace 2")), "{d:?}");
 }

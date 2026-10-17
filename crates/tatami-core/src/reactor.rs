@@ -1933,22 +1933,21 @@ impl<P: Platform> Reactor<P> {
         } else {
             None
         };
-        self.p
-            .mark_frame(mark.map(|(r, _)| r), mark.is_some_and(|(_, f)| f));
+        self.p.mark_frame(mark);
     }
 
-    /// What the overview's highlight is on: a header's monitor (a border),
-    /// a window where it shows (border and wash), or the window's monitor
-    /// while its workspace is still hidden. A key row is on nothing.
-    fn overview_marked(&self) -> Option<(Rect, bool)> {
+    /// What the overview's highlight is on: a header's monitor, a window
+    /// where it shows, or the window's monitor while its workspace is
+    /// still hidden. A key row is on nothing.
+    fn overview_marked(&self) -> Option<Rect> {
         let (_, items) = self.overview_rows();
-        let mon = |m: MonitorId| self.monitors.get(m).map(|m| (m.info.frame, false));
+        let mon = |m: MonitorId| self.monitors.get(m).map(|m| m.info.frame);
         match items.get(self.overview_sel)? {
             OverviewItem::Monitor(m) => mon(*m),
             OverviewItem::Window(w) => {
                 let m = self.wins.get(*w)?;
                 if self.model.is_visible(m.ws) && !m.w.minimized {
-                    Some((m.w.expected.unwrap_or(m.w.frame), true))
+                    Some(m.w.expected.unwrap_or(m.w.frame))
                 } else {
                     mon(self.ws_monitor(m.ws))
                 }

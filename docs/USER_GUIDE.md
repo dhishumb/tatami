@@ -296,7 +296,7 @@ workspaces (visible one starred) and one line per window with a letter
 - `↑`/`↓` move the highlight over headers and windows; it starts on the
   window you're in. What the highlight is on is outlined on the desk
   itself, the way Displays settings marks the display you pick: a header
-  outlines its monitor, a window is outlined and tinted where it stands.
+  outlines its monitor, a window is outlined where it stands.
   Rest on a window and, after a moment, you see it: its monitor switches
   to its workspace if that was hidden, and it comes to the front if
   something covered it (a floating window behind a tile). A peek:

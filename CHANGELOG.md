@@ -20,10 +20,7 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
   moment, and a window behind another (a floating one under a tile)
   comes to the front: a peek, with nothing focused. Close the overview
   without picking it and the monitor goes back to what it showed, the
-  front window back in front. The window's
-  outline comes with a translucent wash, since a border alone sits on
-  the window's own edge and vanished against the bezel. A header still
-  outlines its monitor, border only.
+  front window back in front. A header still outlines its monitor.
 - **Close or move a window from the overview.** `q` closes the
   highlighted window (no window is lettered `q`; `⇧⌫` while searching).
   Hold shift to send it, the way a chord sends the focused one:

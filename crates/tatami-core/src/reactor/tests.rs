@@ -2252,9 +2252,8 @@ fn the_overview_outlines_the_highlighted_monitor_on_screen() {
     t.calls();
     t.ok("overview");
     assert!(
-        t.calls()
-            .contains(&FakeCall::Mark(Some(r(0.0, 0.0, W, H)), true)),
-        "the highlight starts on a, outlined and washed where it stands"
+        t.calls().contains(&FakeCall::Mark(Some(r(0.0, 0.0, W, H)))),
+        "the highlight starts on a, outlined where it stands"
     );
     let down = |code: u16| RawKeyEvent::Down {
         keycode: code,
@@ -2265,15 +2264,14 @@ fn the_overview_outlines_the_highlighted_monitor_on_screen() {
     t.key(down(125)); // ↓ to m2's header
     t.drain();
     assert!(
-        t.calls()
-            .contains(&FakeCall::Mark(Some(r(W, 0.0, W, H)), false)),
-        "a header outlines its monitor, no wash"
+        t.calls().contains(&FakeCall::Mark(Some(r(W, 0.0, W, H)))),
+        "a header outlines its monitor"
     );
     t.key(down(53)); // Esc
     t.drain();
     assert_eq!(
-        t.calls().iter().rfind(|c| matches!(c, FakeCall::Mark(..))),
-        Some(&FakeCall::Mark(None, false)),
+        t.calls().iter().rfind(|c| matches!(c, FakeCall::Mark(_))),
+        Some(&FakeCall::Mark(None)),
         "closing takes the outline down"
     );
 }
@@ -2781,8 +2779,8 @@ fn resting_on_a_hidden_window_in_the_overview_peeks_at_its_workspace() {
     );
     let calls = t.calls();
     assert_eq!(
-        calls.iter().rfind(|c| matches!(c, FakeCall::Mark(..))),
-        Some(&FakeCall::Mark(Some(r(W, 0.0, W, H)), true)),
+        calls.iter().rfind(|c| matches!(c, FakeCall::Mark(_))),
+        Some(&FakeCall::Mark(Some(r(W, 0.0, W, H)))),
         "and the window is outlined where it now shows"
     );
     assert!(

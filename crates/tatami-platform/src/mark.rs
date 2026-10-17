@@ -1,9 +1,8 @@
 //! The outline: a border around the monitor or window the overview's
 //! highlight is on, the way Displays settings marks the display you
-//! pick; a window gets a translucent wash too, since a border alone sits
-//! on the window's own edge and vanishes against a bezel. A transparent
-//! panel the size of the frame whose content is an `NSBox`, above every
-//! window and under the sheet, never in the way of the mouse.
+//! pick. A transparent panel the size of the frame whose content is an
+//! `NSBox` border, above every window and under the sheet, never in the
+//! way of the mouse.
 
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly};
@@ -19,12 +18,11 @@ const WIDTH: f64 = 6.0;
 const RADIUS: f64 = 12.0;
 /// The sheet's accent blue.
 const COLOR: (f64, f64, f64) = (0.45, 0.72, 1.0);
-const FILL_ALPHA: f64 = 0.22;
 
 pub(crate) struct Mark {
-    panel: Option<(Retained<NSPanel>, Retained<NSBox>)>,
-    /// The frame outlined now, and whether it is washed.
-    shown: Option<(Rect, bool)>,
+    panel: Option<Retained<NSPanel>>,
+    /// The frame outlined now.
+    shown: Option<Rect>,
 }
 
 impl Mark {
@@ -35,28 +33,19 @@ impl Mark {
         }
     }
 
-    pub(crate) fn show(&mut self, mtm: MainThreadMarker, frame: Option<Rect>, filled: bool) {
+    pub(crate) fn show(&mut self, mtm: MainThreadMarker, frame: Option<Rect>) {
         let Some(f) = frame else {
             if self.shown.take().is_some()
-                && let Some((p, _)) = &self.panel
+                && let Some(p) = &self.panel
             {
                 p.orderOut(None);
             }
             return;
         };
-        if self
-            .shown
-            .is_some_and(|(s, was)| s.approx_eq(&f, 0.5) && was == filled)
-        {
+        if self.shown.is_some_and(|s| s.approx_eq(&f, 0.5)) {
             return;
         }
-        let (panel, border) = self.panel.get_or_insert_with(|| make_panel(mtm));
-        let fill = if filled {
-            NSColor::colorWithSRGBRed_green_blue_alpha(COLOR.0, COLOR.1, COLOR.2, FILL_ALPHA)
-        } else {
-            NSColor::clearColor()
-        };
-        border.setFillColor(&fill);
+        let panel = self.panel.get_or_insert_with(|| make_panel(mtm));
         // AX frames are top-left based; AppKit's origin is the primary display's bottom-left.
         let main_h = CGDisplayBounds(CGMainDisplayID()).size.height;
         let rect = CGRect::new(
@@ -65,11 +54,11 @@ impl Mark {
         );
         panel.setFrame_display(rect, true);
         panel.orderFrontRegardless();
-        self.shown = Some((f, filled));
+        self.shown = Some(f);
     }
 }
 
-fn make_panel(mtm: MainThreadMarker) -> (Retained<NSPanel>, Retained<NSBox>) {
+fn make_panel(mtm: MainThreadMarker) -> Retained<NSPanel> {
     let frame = CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(10.0, 10.0));
     let panel = NSPanel::initWithContentRect_styleMask_backing_defer(
         NSPanel::alloc(mtm),
@@ -109,5 +98,5 @@ fn make_panel(mtm: MainThreadMarker) -> (Retained<NSPanel>, Retained<NSBox>) {
         NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
     );
     panel.setContentView(Some(&border));
-    (panel, border)
+    panel
 }

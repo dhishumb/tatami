@@ -217,6 +217,9 @@ pub struct Reactor<P: Platform> {
     overview_peek: Vec<(MonitorId, WorkspaceId)>,
     /// The focused monitor before the first peek.
     overview_peek_focus: Option<MonitorId>,
+    /// A peek raised a window over the focused one; closing without a
+    /// pick raises the focused one back.
+    overview_peek_raised: bool,
     /// When the highlight has rested long enough to peek.
     overview_peek_at: Option<Instant>,
     /// The picked window's monitor: its peek is kept, the rest undone.
@@ -366,21 +369,16 @@ pub(crate) enum OverviewItem {
     },
 }
 
-/// Letters for the overview's windows: `a`…`z` then `A`…`Z`.
+/// Letters for the overview's windows: `a`…`z` then `A`…`Z`, less `q`,
+/// which closes the highlighted window.
+const OVERVIEW_LETTERS: &str = "abcdefghijklmnoprstuvwxyzABCDEFGHIJKLMNOPRSTUVWXYZ";
+
 fn overview_letter(i: usize) -> Option<char> {
-    match i {
-        0..=25 => char::from_u32('a' as u32 + i as u32),
-        26..=51 => char::from_u32('A' as u32 + (i - 26) as u32),
-        _ => None,
-    }
+    OVERVIEW_LETTERS.chars().nth(i)
 }
 
 fn overview_index(c: char) -> Option<usize> {
-    match c {
-        'a'..='z' => Some(c as usize - 'a' as usize),
-        'A'..='Z' => Some(26 + c as usize - 'A' as usize),
-        _ => None,
-    }
+    OVERVIEW_LETTERS.chars().position(|l| l == c)
 }
 
 /// A key row matches when a word of its text (chord, command, mode; `-`
@@ -468,6 +466,7 @@ impl<P: Platform> Reactor<P> {
             overview_open: Vec::new(),
             overview_peek: Vec::new(),
             overview_peek_focus: None,
+            overview_peek_raised: false,
             overview_peek_at: None,
             overview_keep: None,
             prompt: None,
@@ -1110,9 +1109,19 @@ impl<P: Platform> Reactor<P> {
                 close(self);
                 KeyDisposition::Swallow
             }
-            // Shift acts on the highlighted window, as the chords do on
-            // the focused one: ⌫ closes it, ←/→ send it to the monitor
-            // beside, 1–9 to that workspace of its monitor.
+            // `q` closes the highlighted window (no window gets that
+            // letter); shift acts on it as the chords do on the focused
+            // one: ⌫ closes too (while searching, `q` is text), ←/→ send
+            // it to the monitor beside, 1–9 to that workspace of its
+            // monitor.
+            (false, Some(KeyName::Char('q')))
+                if !mods.shift && matches!(current, Some(OverviewItem::Window(_))) =>
+            {
+                if let Some(OverviewItem::Window(w)) = current {
+                    self.overview_close(w);
+                }
+                KeyDisposition::Swallow
+            }
             (_, Some(KeyName::Backspace)) if on_window.is_some() => {
                 if let Some(w) = on_window {
                     self.overview_close(w);
@@ -1296,6 +1305,8 @@ impl<P: Platform> Reactor<P> {
             && let Err(e) = self.p.close(h)
         {
             tracing::info!(window = ?h, "overview: close failed: {e}");
+            self.flash = Some((format!("close: {e}"), self.now + FLASH_FOR));
+            self.status_dirty = true;
         }
         self.overview_rebuild(None);
     }
@@ -1347,8 +1358,10 @@ impl<P: Platform> Reactor<P> {
     }
 
     /// The highlight has rested on a window: show its workspace on its
-    /// monitor so the list and the room agree, remembering what that
-    /// monitor showed before. Nothing is focused or raised.
+    /// monitor, remembering what that monitor showed before, and bring
+    /// the window to the front (a float behind a tile is otherwise only
+    /// an outline). Focus in the model stays where it was; the raise's
+    /// echo is swallowed.
     fn overview_peek(&mut self) {
         if !self.overview || self.prompt.is_some() {
             return;
@@ -1357,23 +1370,31 @@ impl<P: Platform> Reactor<P> {
         else {
             return;
         };
-        let Some(ws) = self.wins.get(w).map(|m| m.ws) else {
+        let Some((ws, h, pid, minimized)) = self
+            .wins
+            .get(w)
+            .map(|m| (m.ws, m.w.handle, m.w.pid, m.w.minimized))
+        else {
             return;
         };
-        if self.model.is_visible(ws) {
-            return;
+        if !self.model.is_visible(ws) {
+            let m = self.ws_monitor(ws);
+            if self.overview_peek_focus.is_none() {
+                self.overview_peek_focus = Some(self.focused_monitor);
+            }
+            if !self.overview_peek.iter().any(|&(pm, _)| pm == m)
+                && let Some(was) = self.visible_ws(m)
+            {
+                self.overview_peek.push((m, was));
+            }
+            let sw = self.model.switch(m, ws);
+            self.apply_switch(sw, false);
         }
-        let m = self.ws_monitor(ws);
-        if self.overview_peek_focus.is_none() {
-            self.overview_peek_focus = Some(self.focused_monitor);
+        if self.focused != Some(w) && !minimized && self.p.raise(h).is_ok() {
+            self.raise_echo.push(h);
+            self.last_raise = Some((pid, w, self.now));
+            self.overview_peek_raised = true;
         }
-        if !self.overview_peek.iter().any(|&(pm, _)| pm == m)
-            && let Some(was) = self.visible_ws(m)
-        {
-            self.overview_peek.push((m, was));
-        }
-        let sw = self.model.switch(m, ws);
-        self.apply_switch(sw, false);
         self.set_overlay(OverlayChange::Show(Level::Top));
     }
 
@@ -1394,6 +1415,19 @@ impl<P: Platform> Reactor<P> {
         {
             self.focused_monitor = f;
             self.status_dirty = true;
+        }
+        // The window that was in front comes back in front.
+        if std::mem::take(&mut self.overview_peek_raised)
+            && keep.is_none()
+            && let Some(f) = self.focused
+            && let Some(m) = self.wins.get(f)
+            && self.model.is_visible(m.ws)
+            && !m.w.minimized
+        {
+            let h = m.w.handle;
+            if self.p.raise(h).is_ok() {
+                self.raise_echo.push(h);
+            }
         }
     }
 
@@ -1787,7 +1821,7 @@ impl<P: Platform> Reactor<P> {
         let (rows, items) = self.overview_rows();
         let title = match &self.overview_query {
             None => {
-                "desk  ·  ↑↓ move  → open  ← close  ·  Enter or letter: focus  ·  ⇧⌫ close window  ⇧←→ ⇧1–9 send it  ·  / search"
+                "desk  ·  ↑↓ move  → open  ← close  ·  Enter or letter: focus  ·  q close window  ⇧←→ ⇧1–9 send it  ·  / search"
                     .to_string()
             }
             Some(q) => format!(

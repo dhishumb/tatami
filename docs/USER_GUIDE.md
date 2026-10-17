@@ -146,7 +146,7 @@ until `Esc` or `Enter`; the others leave after one.
 | `alt+shift+1` … `9` | move the tile to workspace N and follow it |
 | `alt+tab` | the previous workspace |
 | `alt+/` | pin the key sheet |
-| `alt+o` | the desk on the main monitor as an outline: `↑`/`↓` move (resting on a window shows it), `→` expands a monitor, `←` collapses it, `Enter` or a letter focuses a window, `/` searches; hold shift to act on the highlighted window: `⇧⌫` closes it, `⇧←`/`⇧→` send it to the monitor beside, `⇧1`…`⇧9` to that workspace of its monitor; `Esc` or `alt+o` closes |
+| `alt+o` | the desk on the main monitor as an outline: `↑`/`↓` move (resting on a window shows it), `→` expands a monitor, `←` collapses it, `Enter` or a letter focuses a window, `/` searches; `q` closes the highlighted window, `⇧←`/`⇧→` send it to the monitor beside, `⇧1`…`⇧9` to that workspace of its monitor; `Esc` or `alt+o` closes |
 | `alt+w` + | **workspaces**: `h`/`l` previous/next, `n`/`p` next/previous monitor, `m` move this workspace to the next monitor, `1-9` |
 | `alt+m` + (sticky) | **move**: `hjkl` move, `HJKL` move onto the monitor in that direction, `n` swap with the next tile, `1-9` move to workspace N |
 | `alt+r` + (sticky) | **resize**: `h`/`l` width, `j`/`k` height, `-`/`+` smart (along the container's axis), `=` balance |
@@ -296,16 +296,19 @@ workspaces (visible one starred) and one line per window with a letter
 - `↑`/`↓` move the highlight over headers and windows; it starts on the
   window you're in. What the highlight is on is outlined on the desk
   itself, the way Displays settings marks the display you pick: a header
-  outlines its monitor, a window is outlined where it stands. Rest on a
-  window whose workspace is hidden and, after a moment, its monitor
-  switches to that workspace so you can see it (a peek: nothing is
-  focused, and closing the overview without picking it puts the monitor
-  back on what it was showing).
+  outlines its monitor, a window is outlined and tinted where it stands.
+  Rest on a window and, after a moment, you see it: its monitor switches
+  to its workspace if that was hidden, and it comes to the front if
+  something covered it (a floating window behind a tile). A peek:
+  nothing is focused, and closing the overview without picking it puts
+  the monitor back on what it was showing and the front window back in
+  front.
 - `→` expands the highlighted monitor, `←` collapses it (from one of its
   windows too, landing on the header); `Enter` on a header toggles it.
   `1`…`9` expand monitor N and jump to it.
-- Hold shift to act on the highlighted window, the way the chords act
-  on the focused one: `⇧⌫` closes it; `⇧←`/`⇧→` send it to the monitor
+- `q` closes the highlighted window (no window gets `q` as its letter;
+  while searching, where `q` is text, `⇧⌫` closes). Hold shift to send
+  it, the way the chords send the focused one: `⇧←`/`⇧→` to the monitor
   beside (its visible workspace), `⇧1`…`⇧9` to that workspace of its
   own monitor, made on the spot if need be. The window is not followed:
   the list stays open, the monitor it went to expanded, the highlight

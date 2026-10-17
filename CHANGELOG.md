@@ -17,15 +17,18 @@ The first cut, built and tuned on a four-monitor desk over 2026-10-10 and
   between two Chrome windows was a guess. Now a window row is outlined on
   the desk where the window stands, and resting on a window whose
   workspace is hidden switches its monitor to that workspace after a
-  moment: a peek, with nothing focused. Close the overview without
-  picking it and the monitor goes back to what it showed. The window's
+  moment, and a window behind another (a floating one under a tile)
+  comes to the front: a peek, with nothing focused. Close the overview
+  without picking it and the monitor goes back to what it showed, the
+  front window back in front. The window's
   outline comes with a translucent wash, since a border alone sits on
   the window's own edge and vanished against the bezel. A header still
   outlines its monitor, border only.
-- **Close or move a window from the overview.** Hold shift and the
-  highlighted window takes the key, the way the focused one takes a
-  chord: `⇧⌫` closes it, `⇧←`/`⇧→` send it to the monitor beside,
-  `⇧1`…`⇧9` to that workspace of its monitor (made if need be). The
+- **Close or move a window from the overview.** `q` closes the
+  highlighted window (no window is lettered `q`; `⇧⌫` while searching).
+  Hold shift to send it, the way a chord sends the focused one:
+  `⇧←`/`⇧→` to the monitor beside, `⇧1`…`⇧9` to that workspace of its
+  monitor (made if need be). The
   window is not followed: the list stays open with the highlight on it
   in its new place, so a desk can be sorted out from one sheet instead
   of a focus, a chord and another `alt+o` per window.

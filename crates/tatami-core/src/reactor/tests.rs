@@ -2779,16 +2779,22 @@ fn resting_on_a_hidden_window_in_the_overview_peeks_at_its_workspace() {
         t.r.model.is_visible(ws(&t, hidden)),
         "its workspace is shown on its monitor"
     );
+    let calls = t.calls();
     assert_eq!(
-        t.calls().iter().rfind(|c| matches!(c, FakeCall::Mark(..))),
+        calls.iter().rfind(|c| matches!(c, FakeCall::Mark(..))),
         Some(&FakeCall::Mark(Some(r(W, 0.0, W, H)), true)),
         "and the window is outlined where it now shows"
+    );
+    assert!(
+        calls.contains(&FakeCall::Raise(h[hidden])),
+        "and brought to the front"
     );
     assert_eq!(
         t.r.focused,
         Some(t.r.by_handle[&h[0]]),
         "nothing was focused"
     );
+    t.calls();
     t.key(down(53)); // Esc
     t.drain();
     t.settle();
@@ -2799,13 +2805,17 @@ fn resting_on_a_hidden_window_in_the_overview_peeks_at_its_workspace() {
         "closing puts the monitor back on what it showed"
     );
     assert_eq!(t.r.focused_monitor, t.mon_id("m1"));
+    assert!(
+        t.calls().contains(&FakeCall::Raise(h[0])),
+        "and the window that was in front comes back in front"
+    );
 }
 
 #[test]
 fn shift_on_the_overview_sends_the_highlighted_window_or_closes_it() {
     // Shift acts on the highlighted window as the chords do on the
     // focused one: ⇧→ sends it to the next monitor's visible workspace,
-    // ⇧2 to workspace 2 of its monitor (made on the spot), ⇧⌫ closes it.
+    // ⇧2 to workspace 2 of its monitor (made on the spot); `q` closes it.
     // The overview stays open through all of it.
     let (mut t, h) = setup(
         vec![mon("m1", 0.0), mon("m2", W)],
@@ -2854,7 +2864,12 @@ fn shift_on_the_overview_sends_the_highlighted_window_or_closes_it() {
     assert_eq!(t.r.ws_monitor(t.r.wins[a].ws), m2, "of the second monitor");
     assert_ne!(t.r.wins[a].ws, t.r.wins[c].ws);
     t.calls();
-    assert_eq!(t.key(shifted(51)), KeyDisposition::Swallow); // ⇧⌫
+    let plain = |code: u16| RawKeyEvent::Down {
+        keycode: code,
+        mods: Mods::default(),
+        repeat: false,
+    };
+    assert_eq!(t.key(plain(12)), KeyDisposition::Swallow); // q
     t.settle();
     assert!(t.calls().contains(&FakeCall::Close(h[0])));
     assert!(!t.r.by_handle.contains_key(&h[0]), "a is gone");
